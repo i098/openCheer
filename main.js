@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { execFile } = require('child_process');
+const { startBand } = require('./band');
 
 // ── Win32 FFI (Windows only) ────────────────────────────────────────────────
 let keybd_event, VkKeyScanA;
@@ -284,6 +285,11 @@ app.whenReady().then(async () => {
     ])
   );
   tray.on('click', toggleOverlay);
+  stopBand = startBand(m => {
+    if (overlay && overlayReady) overlay.webContents.send('band-motion', m);
+  });
 });
 
+let stopBand = () => {};
+app.on('will-quit', () => stopBand());
 app.on('window-all-closed', e => e.preventDefault()); // keep alive in tray
