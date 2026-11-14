@@ -25,6 +25,9 @@ const P = {
   firstCrackGraceMs: 350,
   fallMs:        600,
   bgAlpha:       0.011, // barely-visible bg so window captures mouse events
+  frenzyCheers:  3,     // cheers within frenzyWindowMs start frenzy
+  frenzyWindowMs: 2000,
+  frenzyMs:      4000,
 };
 
 const canvas = document.getElementById('c');
@@ -43,7 +46,7 @@ let lastCrackTime = 0;
 let spawnTime = 0;
 let lean = 0;
 
-const WHIP_CRACK_SOUNDS = ['sounds/A.mp3', 'sounds/B.mp3', 'sounds/C.mp3', 'sounds/D.mp3', 'sounds/E.mp3'];
+let lastFrame = Date.now(), wavePhase = 0, hueOff = 0, fz = 0, frenzyUntil = 0, cheers = [];
 
 document.addEventListener('mousemove', e => { mouseX = e.clientX; });
 document.addEventListener('mousedown', startDrop);
@@ -73,10 +76,61 @@ function spawnSticks() {
   return out;
 }
 
-function playCrackSound() {
-  const src = WHIP_CRACK_SOUNDS[Math.floor(Math.random() * WHIP_CRACK_SOUNDS.length)];
-  new Audio(src).play().catch(() => {});
+// ── Synth sound (Web Audio, no files). Never throws. ────────────────────────
+let actx = null;
+function audio() {
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!actx && AC) actx = new AC();
+    if (actx && actx.state === 'suspended') actx.resume().catch(() => {});
+    return actx;
+  } catch { return null; }
 }
+
+function tone(a, freq, at, dur, vol, type = 'sine') {
+  const o = a.createOscillator(), g = a.createGain();
+  o.type = type;
+  o.frequency.value = freq;
+  g.gain.setValueAtTime(0, at);
+  g.gain.linearRampToValueAtTime(vol, at + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+  o.connect(g).connect(a.destination);
+  o.start(at);
+  o.stop(at + dur + 0.02);
+}
+
+function sfx(fn) {
+  try { const a = audio(); if (a) fn(a, a.currentTime); } catch {}
+}
+
+// Bright rising chime.
+const playChime = () => sfx((a, t) => {
+  tone(a, 880, t, 0.25, 0.12);
+  tone(a, 1318.5, t + 0.07, 0.3, 0.12);
+  tone(a, 1760, t + 0.14, 0.4, 0.1, 'triangle');
+});
+
+// Soft swoosh: band-passed noise sweeping upward.
+const playSwoosh = () => sfx((a, t) => {
+  const n = Math.floor(a.sampleRate * 0.4), buf = a.createBuffer(1, n, a.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+  const src = a.createBufferSource(), f = a.createBiquadFilter(), g = a.createGain();
+  src.buffer = buf;
+  f.type = 'bandpass';
+  f.frequency.setValueAtTime(300, t);
+  f.frequency.exponentialRampToValueAtTime(2500, t + 0.35);
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(0.18, t + 0.12);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.4);
+  src.connect(f).connect(g).connect(a.destination);
+  src.start(t);
+});
+
+// Louder sparkle arpeggio when frenzy starts.
+const playFanfare = () => sfx((a, t) => {
+  [784, 988, 1175, 1568, 1976, 2349, 3136].forEach((f, i) => tone(a, f, t + i * 0.06, 0.45, 0.2, 'triangle'));
+  tone(a, 523, t, 0.9, 0.18, 'square');
+});
 
 function update() {
   if (!sticks) return;
@@ -86,10 +140,25 @@ function update() {
   lean += (target - lean) * P.leanSmooth;
 
   const now = Date.now();
+  const dt = Math.min(50, now - lastFrame);
+  lastFrame = now;
+  if (frenzyUntil && now > frenzyUntil) frenzyUntil = 0;
+  fz += ((frenzyUntil ? 1 : 0) - fz) * 0.08;
+  wavePhase += dt * P.waveSpeed * (1 + 1.5 * fz);
+  if (fz > 0.01) hueOff = (hueOff + dt * 0.25) % 360; else hueOff = 0;
+
   if (!dropping && Math.hypot(mvx) > P.crackSpeed &&
       now - spawnTime >= P.firstCrackGraceMs && now - lastCrackTime > P.crackCooldownMs) {
     lastCrackTime = now;
-    playCrackSound();
+    cheers = cheers.filter(c => now - c < P.frenzyWindowMs);
+    cheers.push(now);
+    if (cheers.length >= P.frenzyCheers && !frenzyUntil) {
+      frenzyUntil = now + P.frenzyMs;
+      cheers = [];
+      playFanfare();
+    } else {
+      playChime();
+    }
     window.bridge.whipCrack();
   }
 
@@ -102,7 +171,7 @@ function update() {
 
 // A rigid cylinder pointing up from its base, rotated by `a` around the base.
 function drawStick(s, a, alpha, fall) {
-  const L = P.stickLength, w = P.stickWidth, h = `hsl(${s.hue}`;
+  const L = P.stickLength, w = P.stickWidth, h = `hsl(${(s.hue + hueOff) % 360}`;
   ctx.save();
   ctx.globalAlpha = alpha;
   ctx.translate(s.x, s.y + fall);
@@ -114,7 +183,7 @@ function drawStick(s, a, alpha, fall) {
   g.addColorStop(0.75, `${h},100%,55%)`);
   g.addColorStop(1, `${h},100%,22%)`);
   ctx.shadowColor = `${h},100%,60%)`;
-  ctx.shadowBlur = 28;
+  ctx.shadowBlur = 28 + 30 * fz;
   ctx.fillStyle = g;
   ctx.beginPath();
   ctx.roundRect(-w / 2, -L, w, L, w / 2);
@@ -140,9 +209,25 @@ function draw() {
 
   const now = Date.now();
   const t = dropping ? Math.min(1, (now - dropStart) / P.fallMs) : 0;
+  if (fz > 0.01) drawEdgeGlow(now, (1 - t) * fz);
   for (const s of sticks) {
-    const a = s.tilt + P.waveAmp * Math.sin(now * P.waveSpeed + s.phase) + lean;
+    const a = s.tilt + P.waveAmp * (1 + 0.6 * fz) * Math.sin(wavePhase + s.phase) + lean;
     drawStick(s, a, 1 - t, t * t * 500);
+  }
+}
+
+// Soft rainbow glow pulsing at the left and right screen edges.
+function drawEdgeGlow(now, k) {
+  const pulse = 0.65 + 0.35 * Math.sin(now * 0.012);
+  const gw = 260;
+  for (let side = 0; side < 2; side++) {
+    const x0 = side ? W : 0, x1 = side ? W - gw : gw;
+    const g = ctx.createLinearGradient(x0, 0, x1, 0);
+    const hue = hueOff + side * 180;
+    g.addColorStop(0, `hsla(${hue},100%,60%,${0.45 * pulse * k})`);
+    g.addColorStop(1, `hsla(${hue},100%,60%,0)`);
+    ctx.fillStyle = g;
+    ctx.fillRect(Math.min(x0, x1), 0, gw, H);
   }
 }
 
@@ -158,6 +243,8 @@ window.bridge.onSpawnWhip(() => {
   sticks = spawnSticks();
   prevMouseX = mouseX;
   lean = 0;
+  frenzyUntil = 0; cheers = []; fz = 0;
+  playSwoosh();
 });
 
 window.bridge.onDropWhip(startDrop);
