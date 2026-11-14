@@ -20,6 +20,13 @@ const P = {
   leanByMouseX:  0.012, // lean (radians) per px of horizontal mouse speed
   leanClamp:     0.7,
   leanSmooth:    0.15,
+  bandRollAxes:  ['ax', 'az'], // roll = atan2(first, second) of the wrist gravity vector; swap/negate if the sticks lean the wrong way
+  bandRollSign:  1,     // -1 mirrors the lean
+  bandRollClamp: 1.2,   // radians
+  bandSmooth:    0.2,
+  bandWaveAmp:   0.04,  // idle wave while the band is live
+  bandShakeDps:  400,   // wrist gyro (deg/s) that counts as a shake
+  bandLiveMs:    1000,  // band is live while its last sample is younger than this
   crackSpeed:    60,    // mouse px/frame to trigger crack
   crackCooldownMs: 200,
   firstCrackGraceMs: 350,
@@ -45,6 +52,8 @@ let dropping = false, dropStart = 0;
 let lastCrackTime = 0;
 let spawnTime = 0;
 let lean = 0;
+let bandAt = 0, bandTarget = 0, bandRoll = 0, bandGyro = 0;
+const bandLive = now => now - bandAt < P.bandLiveMs;
 
 let lastFrame = Date.now(), wavePhase = 0, hueOff = 0, fz = 0, frenzyUntil = 0, cheers = [];
 
@@ -147,7 +156,11 @@ function update() {
   wavePhase += dt * P.waveSpeed * (1 + 1.5 * fz);
   if (fz > 0.01) hueOff = (hueOff + dt * 0.25) % 360; else hueOff = 0;
 
-  if (!dropping && Math.hypot(mvx) > P.crackSpeed &&
+  const live = bandLive(now);
+  bandRoll += (bandTarget - bandRoll) * P.bandSmooth;
+  const shake = live && bandGyro > P.bandShakeDps;
+  bandGyro = 0;
+  if (!dropping && (live ? shake : Math.hypot(mvx) > P.crackSpeed) &&
       now - spawnTime >= P.firstCrackGraceMs && now - lastCrackTime > P.crackCooldownMs) {
     lastCrackTime = now;
     cheers = cheers.filter(c => now - c < P.frenzyWindowMs);
@@ -211,7 +224,8 @@ function draw() {
   const t = dropping ? Math.min(1, (now - dropStart) / P.fallMs) : 0;
   if (fz > 0.01) drawEdgeGlow(now, (1 - t) * fz);
   for (const s of sticks) {
-    const a = s.tilt + P.waveAmp * (1 + 0.6 * fz) * Math.sin(wavePhase + s.phase) + lean;
+    const live = bandLive(now);
+    const a = s.tilt + (live ? P.bandWaveAmp : P.waveAmp * (1 + 0.6 * fz)) * Math.sin(wavePhase + s.phase) + (live ? bandRoll : lean);
     drawStick(s, a, 1 - t, t * t * 500);
   }
 }
@@ -248,6 +262,14 @@ window.bridge.onSpawnWhip(() => {
 });
 
 window.bridge.onDropWhip(startDrop);
+
+window.bridge.onBand(m => {
+  const [a, b] = P.bandRollAxes;
+  const r = P.bandRollSign * Math.atan2(m[a], m[b]);
+  bandTarget = Math.max(-P.bandRollClamp, Math.min(P.bandRollClamp, r));
+  bandGyro = Math.max(bandGyro, m.gyro);
+  bandAt = Date.now();
+});
 
 </script>
 </body>

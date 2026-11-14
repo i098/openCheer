@@ -32,6 +32,7 @@
   "homepage": "https://github.com/i098/openCheer#readme",
   "files": [
     "main.js",
+    "band.js",
     "preload.js",
     "overlay.html",
     "sounds",
