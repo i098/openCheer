@@ -1,14 +1,14 @@
-# OpenWhip
+# openCheer
 
 ![Whip divider](assets/divider.png)
 
-Sometimes claude code is going too shlow, and you must whip him into shape..
+Sometimes claude code is going too shlow, and you must cheer him on.. with glowsticks!
 
 ## Install + run
 
 ```bash
-npm install -g openwhip
-openwhip
+npm install -g opencheer
+opencheer
 ```
 
 windows and mac supported out of the box, but Linux is a special snowflake so you need to install `xdotool` for keyboard automation
@@ -19,9 +19,9 @@ sudo apt install xdotool
 
 ## Controls
 
-- Click tray icon: spawn whip.
-- Click: drop whip.
-- Whip him 😩💢
+- Click tray icon: spawn glowsticks.
+- Click: drop glowsticks.
+- Cheer him on 🎉
 - It sends an interrupt (Ctrl-C) and one of 5 encouraging messages!
 
 ## Roadmap
@@ -34,7 +34,7 @@ sudo apt install xdotool
 
 ## Ecosystem
 
-The OFFICAL openwhip ecosystem token. 
+The OFFICAL opencheer ecosystem token. 
 
 Contract address: BRyUZbJkm9Pty4FUmTrBGno7U4Ga8TWzcKJJRLCBpump
 

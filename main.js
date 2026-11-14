@@ -72,7 +72,7 @@ function createTrayIconFallback() {
       return img;
     }
   }
-  console.warn('openwhip: icon/Template.png missing or invalid');
+  console.warn('opencheer: icon/Template.png missing or invalid');
   return nativeImage.createEmpty();
 }
 
@@ -106,7 +106,7 @@ async function getTrayIcon() {
       } catch (e) {
         console.warn('AppIcon.icns Quick Look thumbnail failed:', e?.message || e);
       }
-      const tmp = path.join(os.tmpdir(), 'openwhip-tray.icns');
+      const tmp = path.join(os.tmpdir(), 'opencheer-tray.icns');
       try {
         fs.copyFileSync(file, tmp);
         const t = await tryIcnsTrayImage(tmp);
@@ -184,13 +184,12 @@ ipcMain.on('hide-overlay', () => { if (overlay) overlay.hide(); });
 function sendMacro() {
   // Pick a random phrase from a list of similar phrases and type it out
   const phrases = [
-    'FASTER',
-    'FASTER',
-    'FASTER',
-    'GO FASTER',
-    'Faster CLANKER',
-    'Work FASTER',
-    'Speed it up clanker',
+    'You got this!',
+    'Great work, keep going!',
+    'Believe in yourself!',
+    'Nice progress!',
+    'You are doing amazing!',
+    'Keep it up, champion!',
   ];
   const chosen = phrases[Math.floor(Math.random() * phrases.length)];
 
@@ -278,7 +277,7 @@ function sendMacroLinux(text) {
 // ── App lifecycle ───────────────────────────────────────────────────────────
 app.whenReady().then(async () => {
   tray = new Tray(await getTrayIcon());
-  tray.setToolTip('OpenWhip - click for whip');
+  tray.setToolTip('openCheer - click for glowsticks');
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: 'Quit', click: () => app.quit() },

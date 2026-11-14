@@ -386,45 +386,33 @@ function draw() {
 
   if (!whip) return;
 
-  // White: thin halo on full spline, then extra thickness only over handle links.
+  // Glowsticks: each link is a shaded cylinder (dark edge, bright core, white highlight) with glow.
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  ctx.strokeStyle = '#fff';
-  if (whip.length >= 2) {
-    ctx.beginPath();
-    ctx.moveTo(whip[0].x, whip[0].y);
-    for (let i = 0; i < whip.length - 1; i++) {
-      const { cp1x, cp1y, cp2x, cp2y, x2, y2 } = whipSegmentBezier(whip, i);
-      ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, x2, y2);
-    }
-    ctx.lineWidth = P.lineWidthTip + P.outlineWidth * 2;
-    ctx.stroke();
-
-    const thickLinks = Math.min(P.handleThickSegments, whip.length - 1);
-    if (thickLinks > 0 && P.handleExtraWidth > 0) {
+  const n = whip.length - 1;
+  for (let i = 0; i < n; i++) {
+    const t = i / Math.max(1, n - 1);
+    const hue = (i * 40) % 360;
+    const w = lerp(P.lineWidthHandle, P.lineWidthTip, t) + (i < P.handleThickSegments ? P.handleExtraWidth : 0) + 4;
+    const { cp1x, cp1y, cp2x, cp2y, x2, y2 } = whipSegmentBezier(whip, i);
+    const layers = [
+      [`hsl(${hue},100%,35%)`, w, 18],
+      [`hsl(${hue},100%,60%)`, w * 0.65, 0],
+      [`hsl(${hue},100%,85%)`, w * 0.3, 0],
+      ['rgba(255,255,255,0.9)', w * 0.1, 0],
+    ];
+    for (const [c, lw, blur] of layers) {
+      ctx.shadowColor = `hsl(${hue},100%,60%)`;
+      ctx.shadowBlur = blur;
+      ctx.strokeStyle = c;
+      ctx.lineWidth = lw;
       ctx.beginPath();
-      ctx.moveTo(whip[0].x, whip[0].y);
-      for (let i = 0; i < thickLinks; i++) {
-        const { cp1x, cp1y, cp2x, cp2y, x2, y2 } = whipSegmentBezier(whip, i);
-        ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, x2, y2);
-      }
-      ctx.lineWidth =
-        P.lineWidthHandle + P.handleExtraWidth + P.outlineWidth * 2;
+      ctx.moveTo(whip[i].x, whip[i].y);
+      ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, x2, y2);
       ctx.stroke();
     }
   }
-
-  ctx.strokeStyle = '#111';
-  for (let i = 0; i < whip.length - 1; i++) {
-    const t = i / Math.max(1, whip.length - 2);
-    const extra = i < P.handleThickSegments ? P.handleExtraWidth : 0;
-    ctx.lineWidth = lerp(P.lineWidthHandle, P.lineWidthTip, t) + extra;
-    const { cp1x, cp1y, cp2x, cp2y, x2, y2 } = whipSegmentBezier(whip, i);
-    ctx.beginPath();
-    ctx.moveTo(whip[i].x, whip[i].y);
-    ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, x2, y2);
-    ctx.stroke();
-  }
+  ctx.shadowBlur = 0;
 }
 
 // ── Main loop ───────────────────────────────────────────────────────────────
