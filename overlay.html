@@ -389,16 +389,13 @@ function draw() {
   // Glowsticks: each link is a shaded cylinder (dark edge, bright core, white highlight) with glow.
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  const n = whip.length - 1;
-  for (let i = 0; i < n; i++) {
-    const t = i / Math.max(1, n - 1);
-    const hue = (i * 40) % 360;
-    const w = lerp(P.lineWidthHandle, P.lineWidthTip, t) + (i < P.handleThickSegments ? P.handleExtraWidth : 0) + 4;
-    const { cp1x, cp1y, cp2x, cp2y, x2, y2 } = whipSegmentBezier(whip, i);
+  const n = whip.length - 1, per = 4, w = 16;
+  for (let a = 0; a < n; a += per) {
+    const hue = (a / per * 55 + 300) % 360;
     const layers = [
-      [`hsl(${hue},100%,35%)`, w, 18],
-      [`hsl(${hue},100%,60%)`, w * 0.65, 0],
-      [`hsl(${hue},100%,85%)`, w * 0.3, 0],
+      [`hsl(${hue},100%,35%)`, w, 24],
+      [`hsl(${hue},100%,58%)`, w * 0.7, 0],
+      [`hsl(${hue},100%,82%)`, w * 0.32, 0],
       ['rgba(255,255,255,0.9)', w * 0.1, 0],
     ];
     for (const [c, lw, blur] of layers) {
@@ -407,8 +404,11 @@ function draw() {
       ctx.strokeStyle = c;
       ctx.lineWidth = lw;
       ctx.beginPath();
-      ctx.moveTo(whip[i].x, whip[i].y);
-      ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, x2, y2);
+      ctx.moveTo(whip[a].x, whip[a].y);
+      for (let i = a; i < Math.min(a + per - 1, n); i++) {
+        const { cp1x, cp1y, cp2x, cp2y, x2, y2 } = whipSegmentBezier(whip, i);
+        ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, x2, y2);
+      }
       ctx.stroke();
     }
   }
