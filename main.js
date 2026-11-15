@@ -185,8 +185,11 @@ function setGlow(on) {
 // ── Control window ──────────────────────────────────────────────────────────
 function showControl(inactive) {
   if (ctl && !ctl.isDestroyed()) return ctl.show();
+  const wa = screen.getPrimaryDisplay().workArea;
   ctl = new BrowserWindow({
     width: 280, height: 150, useContentSize: true,
+    x: wa.x + wa.width - 280 - 16, y: wa.y + 16,
+    alwaysOnTop: true,
     resizable: false, minimizable: false, maximizable: false, fullscreenable: false,
     show: false,
     title: 'openCheer',
