@@ -31,7 +31,6 @@ const P = {
   crackCooldownMs: 200,
   firstCrackGraceMs: 350,
   fallMs:        600,
-  bgAlpha:       0.011, // barely-visible bg so window captures mouse events
   frenzyCheers:  3,     // cheers within frenzyWindowMs start frenzy
   frenzyWindowMs: 2000,
   frenzyMs:      4000,
@@ -58,7 +57,6 @@ const bandLive = now => now - bandAt < P.bandLiveMs;
 let lastFrame = Date.now(), wavePhase = 0, hueOff = 0, fz = 0, frenzyUntil = 0, cheers = [];
 
 document.addEventListener('mousemove', e => { mouseX = e.clientX; });
-document.addEventListener('mousedown', startDrop);
 
 function startDrop() {
   if (sticks && !dropping) { dropping = true; dropStart = Date.now(); }
@@ -215,9 +213,6 @@ function drawStick(s, a, alpha, fall) {
 
 function draw() {
   ctx.clearRect(0, 0, W, H);
-  // Near-invisible fill so the window captures mouse events on Windows
-  ctx.fillStyle = `rgba(0,0,0,${P.bgAlpha})`;
-  ctx.fillRect(0, 0, W, H);
   if (!sticks) return;
 
   const now = Date.now();
