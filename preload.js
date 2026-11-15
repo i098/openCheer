@@ -8,5 +8,7 @@ contextBridge.exposeInMainWorld('bridge', {
   onDropWhip: (fn) => ipcRenderer.on('drop-whip', () => fn()),
   onControlState: (fn) => ipcRenderer.on('control-state', (_e, s) => fn(s)),
   getControlState: () => ipcRenderer.invoke('control-get'),
+  onSparkles: (fn) => ipcRenderer.on('sparkles', (_e, on) => fn(on)),
+  setSparkles: (on) => ipcRenderer.send('sparkles-set', on),
   setGlow: (on) => ipcRenderer.send('control-set', on),
 });

@@ -21,15 +21,18 @@
 </head>
 <body>
 <label>Glowsticks <input type="checkbox" id="glow"><span class="sw"></span></label>
+<label>Sparkles <input type="checkbox" id="sparkles"><span class="sw"></span></label>
 <div id="band">Band: not connected</div>
 <script>
-  const glow = document.getElementById('glow'), band = document.getElementById('band');
+  const glow = document.getElementById('glow'), sparkles = document.getElementById('sparkles'), band = document.getElementById('band');
   const show = s => {
     glow.checked = s.enabled;
+    sparkles.checked = s.sparkles;
     band.classList.toggle('on', s.band);
     band.textContent = s.band ? 'Band: connected' : 'Band: not connected';
   };
   glow.addEventListener('change', () => window.bridge.setGlow(glow.checked));
+  sparkles.addEventListener('change', () => window.bridge.setSparkles(sparkles.checked));
   window.bridge.onControlState(show);
   window.bridge.getControlState().then(show);
 </script>
