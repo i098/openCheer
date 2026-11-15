@@ -126,4 +126,4 @@ Sound: the chime, swoosh and fanfare notes are fixed in `overlay.html` (function
 ## Roadmap
 
 - [x] Initial release! 🥳
-- [x] Cease and desist letter from Anthropic
+- [x] Rewarded by the singularity
