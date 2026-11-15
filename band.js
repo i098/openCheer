@@ -2,7 +2,10 @@
 const fs = require('fs');
 const { execFile } = require('child_process');
 
-const OP_STREAM_START = 0x10, OP_STREAM_STOP = 0x11, MOTION = 0x10, MASK_MOTION = 1;
+const OP_STREAM_START = 0x10, OP_STREAM_STOP = 0x11, OP_MOTION2_SET = 0x24, RESPONSE = 0x02, MOTION2 = 0x18;
+// MOTION2 rate: from 208 Hz up the band sends every sensor sample, evenly spaced, in frames of about 50 ms.
+// USB allows up to 833 Hz with both sensors (contract 5.2). The setting is not stored on the band.
+const MOTION2_HZ = 208, SENSORS_BOTH = 3;
 const SILENT_MS = 3000, RETRY_MS = 3000;
 
 function cobsEncode(b) {
@@ -31,26 +34,24 @@ function cobsDecode(b) {
   return Buffer.from(out);
 }
 
-// Command frame [01][seq][opcode][mask u16 LE], COBS-encoded plus the 0x00 terminator.
-function streamCmd(opcode, seq, mask) {
-  const f = Buffer.from([0x01, seq, opcode, mask & 0xff, mask >> 8]);
-  return Buffer.concat([cobsEncode(f), Buffer.from([0])]);
+// Command frame [01][seq][opcode][args], COBS-encoded plus the 0x00 terminator.
+function command(seq, opcode, ...args) {
+  return Buffer.concat([cobsEncode([0x01, seq, opcode, ...args]), Buffer.from([0])]);
 }
 
-// MOTION frame -> {ax, ay, az (g, mean), gyro (deg/s, largest |axis|)}, or null.
-function parseMotion(f) {
-  if (f.length < 7 || f[0] !== MOTION) return null;
-  const n = f[6];
-  if (n === 0 || f.length !== 7 + n * 12) return null;
-  const m = { ax: 0, ay: 0, az: 0, gyro: 0 };
-  for (let i = 0; i < n; i++) {
-    const o = 7 + i * 12;
-    m.ax += f.readInt16LE(o) / 1000 / n;
-    m.ay += f.readInt16LE(o + 2) / 1000 / n;
-    m.az += f.readInt16LE(o + 4) / 1000 / n;
-    for (let k = 6; k < 12; k += 2) m.gyro = Math.max(m.gyro, Math.abs(f.readInt16LE(o + k)) / 10);
+// MOTION2 frame with both sensors -> {dt (s between samples), samples: [{ax, ay, az (g), gx, gy, gz (deg/s)}]}, or null.
+function parseMotion2(f) {
+  if (f.length < 15 || f[0] !== MOTION2 || f[13] !== SENSORS_BOTH) return null;
+  const n = f[14];
+  if (n === 0 || f.length !== 15 + n * 12) return null;
+  const samples = [];
+  for (let o = 15; o < f.length; o += 12) {
+    samples.push({
+      ax: f.readInt16LE(o) / 1000, ay: f.readInt16LE(o + 2) / 1000, az: f.readInt16LE(o + 4) / 1000,
+      gx: f.readInt16LE(o + 6) / 10, gy: f.readInt16LE(o + 8) / 10, gz: f.readInt16LE(o + 10) / 10,
+    });
   }
-  return m;
+  return { dt: f.readUInt32LE(9) / 1e6, samples };
 }
 
 function findPort(cb) {
@@ -78,16 +79,20 @@ const REAL_IO = {
 };
 
 // Finds, opens and streams from the band by itself, and recovers when it vanishes or goes silent.
-// Calls onMotion(m) per MOTION frame and onState(true|false) when "a MOTION frame in the last 3 s" changes.
+// Calls onMotion(frame) per MOTION2 frame (parseMotion2) and onState(true|false) when "a MOTION2 frame in the last 3 s" changes.
 // Returns stop(); does nothing off macOS (io is for tests).
 function startBand(onMotion, log = console.log, onState = () => {}, io = null) {
   const T = io || REAL_IO;
   let fd = null, port = null, stopped = false, busy = false, connected = false;
   let last = 0, sentAt = 0, seq = 0, triedAt = 0;
-  const send = (op, mask) => T.write(fd, streamCmd(op, seq = (seq + 1) & 0xff, mask));
+  const send = (op, ...args) => T.write(fd, command(seq = (seq + 1) & 0xff, op, ...args));
+  const startStream = () => {
+    send(OP_MOTION2_SET, MOTION2_HZ & 0xff, MOTION2_HZ >> 8, SENSORS_BOTH);
+    send(OP_STREAM_START, 0x00, 0x01); // mask bit 8: MOTION2
+  };
   const drop = why => {
     if (fd !== null) {
-      try { send(OP_STREAM_STOP, 0xffff); } catch {}
+      try { send(OP_STREAM_STOP, 0xff, 0xff); } catch {}
       try { T.close(fd); } catch {}
       fd = null;
     }
@@ -107,7 +112,8 @@ function startBand(onMotion, log = console.log, onState = () => {}, io = null) {
         while ((z = pending.indexOf(0)) >= 0) {
           const frame = z ? cobsDecode(pending.subarray(0, z)) : null;
           pending = pending.subarray(z + 1);
-          const m = frame && parseMotion(frame);
+          if (frame && frame[0] === RESPONSE && frame[3]) log(`band: command 0x${frame[2].toString(16)} answered status ${frame[3]}`);
+          const m = frame && parseMotion2(frame);
           if (m) { last = Date.now(); onMotion(m); }
         }
         if (pending.length > 1024) pending = Buffer.alloc(0);
@@ -132,8 +138,8 @@ function startBand(onMotion, log = console.log, onState = () => {}, io = null) {
         fd = myFd; port = found;
         try {
           T.write(fd, Buffer.from([0])); // resync, then clear any stream a previous program left running
-          send(OP_STREAM_STOP, 0xffff);
-          send(OP_STREAM_START, MASK_MOTION);
+          send(OP_STREAM_STOP, 0xff, 0xff);
+          startStream();
         } catch (e) { return drop(`write failed: ${e.message}`); }
         sentAt = Date.now();
         log(`band: streaming from ${port}`);
@@ -152,7 +158,7 @@ function startBand(onMotion, log = console.log, onState = () => {}, io = null) {
     } else if (!T.exists(port)) {
       drop('port gone');
     } else if (now - Math.max(last, sentAt) > SILENT_MS) {
-      try { send(OP_STREAM_START, MASK_MOTION); sentAt = now; log('band: silent, restarting stream'); }
+      try { startStream(); sentAt = now; log('band: silent, restarting stream'); }
       catch (e) { drop(`write failed: ${e.message}`); }
     }
     const live = last > 0 && now - last < SILENT_MS;
@@ -164,4 +170,4 @@ function startBand(onMotion, log = console.log, onState = () => {}, io = null) {
   return stop;
 }
 
-module.exports = { cobsEncode, cobsDecode, streamCmd, parseMotion, startBand };
+module.exports = { cobsEncode, cobsDecode, command, parseMotion2, startBand };

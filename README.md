@@ -1,6 +1,6 @@
 # openCheer
 
-![Whip divider](assets/divider.png)
+<img src="icon/Template.png" alt="Glowsticks" width="96">
 
 Sometimes claude code is going too shlow, and you must cheer him on.. with glowsticks!
 
@@ -27,7 +27,7 @@ sudo apt install xdotool
 
 ```mermaid
 flowchart TD
-  band[Vexo band over USB] -->|MOTION frames| shake{Band connected?}
+  band[Vexo band over USB] -->|MOTION2 frames, 208 Hz| shake{Band connected?}
   mouse[Mouse] --> shake
   shake -->|yes: band only| detect[Shake detection]
   shake -->|no: mouse fallback| detect
@@ -59,13 +59,20 @@ No environment variable is read. Edit the values in the files below.
 | `leanByMouseX` | 0.012 | Lean per px of mouse speed (rad) |
 | `leanClamp` | 0.7 | Maximum mouse lean (rad) |
 | `leanSmooth` | 0.15 | Mouse lean smoothing |
-| `bandRollAxes` | `['ax','az']` | Gravity axes used for the band roll; swap them if the sticks lean the wrong way |
+| `bandLeanAxis` | `'ax'` | Band axis that points sideways while the hand holds a stick; its share of gravity is the lean. Use `'ay'` or `'az'` for a band worn another way |
 | `bandRollSign` | 1 | Set -1 to mirror the lean |
-| `bandRollClamp` | 1.2 | Maximum band roll (rad) |
-| `bandSmooth` | 0.2 | Band roll smoothing |
+| `bandGyroSign` | 1 | Set -1 if the sticks first move the wrong way on a turn; 0 uses the accelerometer only |
+| `bandRollClamp` | 1.2 | Maximum band lean (rad) |
+| `bandGravityTau` | 0.04 | How fast the accelerometer corrects the gyro (s) |
+| `bandAccelTrust` | 0.15 | The accelerometer corrects only while it reads within this of 1 g (g) |
+| `bandHoldDps` | 200 | Wrist gyro speed above which the lean holds still, so a shake does not swing the sticks (deg/s) |
+| `bandSmoothMs` | 30 | Display smoothing between band frames (ms) |
 | `bandWaveAmp` | 0.04 | Idle wave size while the band is live (rad) |
-| `bandShakeDps` | 400 | Wrist gyro speed that counts as a shake (deg/s) |
+| `bandShakeDps` | 600 | Wrist gyro speed that starts a shake (deg/s, all three axes together) |
+| `bandShakeEndDps` | 250 | A shake ends when the gyro stays below this (deg/s) |
+| `bandShakeQuietMs` | 120 | Time below `bandShakeEndDps` before the next shake can start (ms) |
 | `bandLiveMs` | 3000 | Band is live while its last sample is younger than this (ms) |
+| `cheerPumpPx` | 40 | A cheer pushes the sticks up along their axis by this much (px) |
 | `crackSpeed` | 60 | Mouse speed that counts as a crack (px/frame) |
 | `crackCooldownMs` | 200 | Minimum time between cracks (ms) |
 | `firstCrackGraceMs` | 350 | No crack for this long after the sticks appear (ms) |
@@ -80,7 +87,8 @@ Sound: the chime, swoosh and fanfare notes are fixed in `overlay.html` (function
 
 | Name | Default | What it does |
 |---|---|---|
-| `SILENT_MS` | 3000 | No MOTION frame for this long: not connected, STREAM_START is sent again (ms) |
+| `MOTION2_HZ` | 208 | Band motion sample rate, set with `MOTION2_SET` on each connect; not stored on the band (Hz) |
+| `SILENT_MS` | 3000 | No MOTION2 frame for this long: not connected, the stream is started again (ms) |
 | `RETRY_MS` | 3000 | Wait between searches for the port (ms) |
 | `tickMs` (`REAL_IO`) | 1000 | Check interval (ms) |
 | USB product name | `Vexo Open band` | Port match in `findPort` (macOS `ioreg`; device `/dev/cu.usbmodem*`) |
@@ -99,8 +107,6 @@ Sound: the chime, swoosh and fanfare notes are fixed in `overlay.html` (function
 - [x] Initial release! 🥳
 - [x] Cease and desist letter from Anthropic
 - [ ] Crypto miner
-- [ ] Logs of how many times you whipped claude so when the robots come we can order people nicely for them
-- [ ] Updated whip physics
 
 ## Ecosystem
 
