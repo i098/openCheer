@@ -42,6 +42,11 @@ const P = {
   crackCooldownMs: 200,
   cheerCooldownMs: 3000, // after a typed cheer, no further typed cheer for this long
   firstCrackGraceMs: 350,
+  levelRise:     0.5,   // voice fill: per frame, share of the gap to a louder level that is closed (fast rise)
+  levelFall:     0.04,  // voice fill: same for a quieter level (slow drain)
+  levelDim:      0.3,   // empty tube opacity, as a share of the lit tube
+  levelAuraMin:  0.25,  // aura strength at level 0, as a share of full
+  levelLiveMs:   3000,  // the fill is active while the last LEVEL line is younger than this
   fallMs:        600,
   frenzyMs:      4000,
   auraScale:     3,     // wand aura radius, in tube half-widths (rest)
@@ -84,6 +89,7 @@ let spawnTime = 0;
 let lean = 0, sparkles = true;
 let bandAt = 0, bandG = null, bandAngle = 0, bandRoll = 0, bandShake = false, shaking = false, quietMs = 0, pump = 0, pitch = 0;
 let swings = [], swingDir0 = 0, swingDir = 1, swingSpeed = 0, trailE = 0, swingCount = 0, mouseArmed = true, sparks = [], sparkDebt = 0;
+let levelAt = 0, levelIn = 0, level = 0; // voice loudness: last line time, last value, smoothed fill 0..1
 const AXIS = { ax: 0, ay: 1, az: 2 };
 
 // One band sample, dt seconds after the last one.
@@ -184,12 +190,12 @@ const playFanfare = () => sfx((a, t) => {
 });
 
 // Types one cheer unless the cooldown is running; returns whether it did.
-function typeCheer(now) {
+function typeCheer(now, text) {
   if (now - lastCheerTyped < P.cheerCooldownMs) return false;
   lastCheerTyped = now;
   frenzyUntil = now + P.frenzyMs; // every typed cheer starts frenzy
   playFanfare();
-  window.bridge.whipCrack();
+  window.bridge.whipCrack(text);
   return true;
 }
 
@@ -212,6 +218,7 @@ function update() {
   const clamped = Math.max(-P.bandRollClamp, Math.min(P.bandRollClamp, bandAngle));
   bandRoll += (clamped - bandRoll) * (1 - Math.exp(-dt / P.bandSmoothMs));
   pump *= Math.exp(-dt / 120);
+  level += (levelIn - level) * (levelIn > level ? P.levelRise : P.levelFall);
   pitch *= Math.exp(-dt / P.bandPitchReturnMs);
   // A shake that never goes quiet counts again once the cheer cooldown has passed.
   const shake = live && (bandShake || (shaking && now - lastCheerTyped >= P.cheerCooldownMs));
@@ -321,7 +328,8 @@ function drawWand(side, a, alpha, fall) {
   // Soft outer glow: a capsule round the tube, the light falls off with the distance from the axis.
   // Gradients, not shadowBlur: cheaper, and the blur shows a faint box on a dark screen.
   const pulse = 0.5 + 0.5 * Math.sin(Date.now() * 0.0018 + side * 2);
-  const K = T * (P.auraScale + 1.6 * fz + 0.6 * pulse), lit = a => `${h},100%,60%,${a * (P.auraAlpha + 0.1 * pulse + 0.25 * fz)})`;
+  const vOn = Date.now() - levelAt < P.levelLiveMs, ak = vOn ? P.levelAuraMin + (1 - P.levelAuraMin) * level : 1;
+  const K = T * (P.auraScale + 1.6 * fz + 0.6 * pulse), lit = a => `${h},100%,60%,${a * ak * (P.auraAlpha + 0.1 * pulse + 0.25 * fz)})`;
   ctx.fillStyle = across(K, [[0, lit(0)], [0.25, lit(0.25)], [0.5, lit(1)], [0.75, lit(0.25)], [1, lit(0)]]);
   ctx.beginPath();
   for (const [u, f] of [[G, -K], [1, -K], [1, K], [G, K]]) ctx.lineTo(hw(u) * f, -u * L);
@@ -346,10 +354,23 @@ function drawWand(side, a, alpha, fall) {
     ctx.globalCompositeOperation = 'source-over';
   }
   // Translucent plastic tube, one colour along its length, slightly darker at the rims.
-  fill(across(T, [[0, `${h},90%,40%,0.95)`], [0.12, `${h},90%,55%,0.9)`], [0.5, `${h},90%,64%,0.85)`],
+  const tube = () => fill(across(T, [[0, `${h},90%,40%,0.95)`], [0.12, `${h},90%,55%,0.9)`], [0.5, `${h},90%,64%,0.85)`],
     [0.88, `${h},90%,52%,0.9)`], [1, `${h},90%,38%,0.95)`]]), G - 0.02, 1, T, true);
   // Soft inner glow: a wide, faint halo of the same colour.
-  fill(across(T * 0.7, [[0, `${h},100%,70%,0)`], [0.5, `${h},100%,74%,0.5)`], [1, `${h},100%,70%,0)`]]), G - 0.02, 0.97, T * 0.7, true);
+  const inner = () => fill(across(T * 0.7, [[0, `${h},100%,70%,0)`], [0.5, `${h},100%,74%,0.5)`], [1, `${h},100%,70%,0)`]]), G - 0.02, 0.97, T * 0.7, true);
+  if (!vOn) { tube(); inner(); } else {
+    // Voice fill: a dim empty tube, lit from the bottom up to the loudness level.
+    ctx.globalAlpha = alpha * P.levelDim;
+    tube();
+    ctx.globalAlpha = alpha;
+    ctx.save();
+    const lv = Math.min(1, level * 1.03); // the smoothed level only nears 1
+    ctx.beginPath();
+    ctx.rect(-W, -(G - 0.08 + (1.08 - G) * lv) * L - lv * 1.5 * hw(1) * T, 2 * W, 2 * H);
+    ctx.clip();
+    tube(); inner();
+    ctx.restore();
+  }
   // Faint plastic sheen on the left of the tube.
   const sg = ctx.createLinearGradient(0, -G * L, 0, -L);
   sg.addColorStop(0.05, white(0)); sg.addColorStop(0.2, white(0.3)); sg.addColorStop(0.8, white(0.2)); sg.addColorStop(0.95, white(0));
@@ -441,7 +462,8 @@ window.bridge.onSpawnWhip(() => {
 
 window.bridge.onDropWhip(startDrop);
 window.bridge.onSparkles(on => { sparkles = on; });
-window.bridge.onVoice(() => { if (!dropping) typeCheer(Date.now()); }); // voice cheer: same cooldown and frenzy
+window.bridge.onVoice(text => { if (shown && !dropping) typeCheer(Date.now(), text); }); // voice cheer: same cooldown and frenzy
+window.bridge.onVoiceLevel(v => { levelIn = Math.max(0, Math.min(1, v)); levelAt = Date.now(); });
 
 window.bridge.onBand(f => {
   for (const m of f.samples) bandSample(m, f.dt);
