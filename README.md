@@ -110,13 +110,3 @@ Sound: the chime, swoosh and fanfare notes are fixed in `overlay.html` (function
 
 - [x] Initial release! 🥳
 - [x] Cease and desist letter from Anthropic
-- [ ] Crypto miner
-
-## Ecosystem
-
-The OFFICAL opencheer ecosystem token. 
-
-Contract address: BRyUZbJkm9Pty4FUmTrBGno7U4Ga8TWzcKJJRLCBpump
-
-Stay tuned for updates on X! 👀
-https://x.com/blended_jpeg
