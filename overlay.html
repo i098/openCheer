@@ -43,9 +43,21 @@ const P = {
   cheerCooldownMs: 3000, // after a typed cheer, no further typed cheer for this long
   firstCrackGraceMs: 350,
   fallMs:        600,
-  frenzyCheers:  3,     // cheers within frenzyWindowMs start frenzy
-  frenzyWindowMs: 2000,
   frenzyMs:      4000,
+  auraScale:     8,     // wand aura radius, in tube half-widths (rest)
+  auraAlpha:     0.45,  // aura strength at rest
+  motes:         10,    // drifting light motes per wand
+  moteSpeed:     0.00007,// mote rise speed (share of the tube per ms)
+  edgeBase:      0.25,  // screen-edge glow at rest, as a share of the frenzy level
+  swingDps:      300,   // wrist gyro speed that counts as one swing stroke (deg/s)
+  swingEndDps:   120,   // a stroke ends below this (deg/s)
+  swingFullDps:  1000,  // gyro speed that gives full-size swing feedback (deg/s)
+  swingMousePx:  30,    // mouse px/frame that counts as a swing stroke
+  swingSparks:   40,    // sparks per wand in the burst of a full swing
+  sparkMax:      160,   // most sparks alive at once
+  trailMs:       250,   // swing trail fade time constant (ms)
+  trailFan:      8,     // ghost copies in the swing trail
+  trailStep:     0.035, // angle between ghost copies at full energy (rad)
 };
 
 const canvas = document.getElementById('c');
@@ -71,6 +83,7 @@ let lastCrackTime = 0;
 let spawnTime = 0;
 let lean = 0;
 let bandAt = 0, bandG = null, bandAngle = 0, bandRoll = 0, bandShake = false, shaking = false, quietMs = 0, pump = 0, pitch = 0;
+let swings = [], swingDir0 = 0, swingDir = 1, swingSpeed = 0, trailE = 0, swingCount = 0, mouseArmed = true, sparks = [], sparkDebt = 0;
 const AXIS = { ax: 0, ay: 1, az: 2 };
 
 // One band sample, dt seconds after the last one.
@@ -82,6 +95,11 @@ function bandSample(m, dt) {
   // Forward/back swing: gyro about the sideways axis, kept during shakes; update() decays it so it cannot drift.
   const gs = [m.gx, m.gy, m.gz][AXIS[P.bandLeanAxis]];
   pitch = Math.max(-P.bandPitchClamp, Math.min(P.bandPitchClamp, pitch + P.bandPitchSign * gs * dt * Math.PI / 180));
+  // Swing strokes: one per forward or back stroke (gyro about the sideways axis), whatever the cheer cooldown says.
+  const sg = gs * P.bandPitchSign, ag = Math.abs(sg);
+  swingSpeed = Math.max(swingSpeed, Math.min(1, ag / P.swingFullDps));
+  if (swingDir0 && ag < P.swingEndDps) swingDir0 = 0;
+  else if (ag > P.swingDps && Math.sign(sg) !== swingDir0) { swingDir0 = Math.sign(sg); swings.push([swingDir0, Math.min(1, ag / P.swingFullDps)]); }
   // Fast motion must not reach the lean: hold the last slow orientation until the wrist is slow again.
   if (shaking || dps > P.bandHoldDps) return;
 
@@ -101,7 +119,7 @@ function bandSample(m, dt) {
 }
 const bandLive = now => now - bandAt < P.bandLiveMs;
 
-let lastFrame = Date.now(), wavePhase = 0, hueOff = 0, fz = 0, frenzyUntil = 0, cheers = [];
+let lastFrame = Date.now(), wavePhase = 0, hueOff = 0, fz = 0, frenzyUntil = 0;
 
 document.addEventListener('mousemove', e => { mouseX = e.clientX; });
 
@@ -192,25 +210,68 @@ function update() {
       now - spawnTime >= P.firstCrackGraceMs && now - lastCrackTime > P.crackCooldownMs) {
     lastCrackTime = now;
     if (!live) pump = 1; // with the band, the forward/back swing replaces the pump
-    cheers = cheers.filter(c => now - c < P.frenzyWindowMs);
-    cheers.push(now);
-    if (cheers.length >= P.frenzyCheers && !frenzyUntil) {
-      frenzyUntil = now + P.frenzyMs;
-      cheers = [];
+    if (now - lastCheerTyped >= P.cheerCooldownMs) {
+      lastCheerTyped = now;
+      frenzyUntil = now + P.frenzyMs; // every typed cheer starts frenzy
       playFanfare();
+      window.bridge.whipCrack();
     } else {
       playChime();
     }
-    if (now - lastCheerTyped >= P.cheerCooldownMs) {
-      lastCheerTyped = now;
-      window.bridge.whipCrack();
-    }
   }
+
+  // Swing feedback, independent of the cheer logic above.
+  const mouseSpeed = Math.abs(mvx);
+  if (!live && !dropping) {
+    if (mouseArmed && mouseSpeed > P.swingMousePx) {
+      mouseArmed = false;
+      swings.push([Math.sign(mvx), Math.min(1, mouseSpeed / (P.swingMousePx * 4)), mouseSpeed]);
+    } else if (mouseSpeed < P.swingMousePx * 0.4) mouseArmed = true;
+  }
+  for (const [dir, power] of swings) if (!dropping) fireSwing(dir, power, now, live);
+  swings.length = 0;
+  const speed = live ? swingSpeed : Math.min(1, mouseSpeed / (P.swingMousePx * 4));
+  trailE = Math.max(trailE * Math.exp(-dt / P.trailMs), dropping ? 0 : speed);
+  swingSpeed *= Math.exp(-dt / 60);
+  if (speed > 0.15 && !dropping) { // sparks keep flowing while the stroke is fast
+    const L = P.wandLength * H * Math.cos(pitch);
+    sparkDebt += dt * 0.06 * speed;
+    const n = Math.floor(sparkDebt); sparkDebt -= n;
+    for (let side = 0; side < 2 && n; side++) emitSparks(side, angleOf(side, live), L, n, speed);
+  }
+  for (const s of sparks) { s.age += dt; s.x += s.vx * dt / 1000; s.y += s.vy * dt / 1000; s.vy += 300 * dt / 1000; s.vx *= 0.985; }
+  sparks = sparks.filter(s => s.age < s.life);
 
   if (dropping && now - dropStart > P.fallMs) {
     shown = false;
     dropping = false;
     window.bridge.hideOverlay();
+  }
+}
+
+// Wand angle for one side.
+function angleOf(side, live) {
+  return (side ? -1 : 1) * P.wandTilt + (live ? P.bandWaveAmp : P.waveAmp * (1 + 0.6 * fz)) * Math.sin(wavePhase + side * 1.1) + (live ? bandRoll : lean);
+}
+
+// One swing, any wand: remember its direction, light the trail and burst sparks from both tips.
+function fireSwing(dir, power, now, live) {
+  swingCount++;
+  swingDir = dir || swingDir;
+  trailE = Math.max(trailE, 0.5 + 0.5 * power);
+  for (let side = 0; side < 2; side++) {
+    const a = angleOf(side, live), L = P.wandLength * H * Math.cos(pitch);
+    emitSparks(side, a, L, Math.floor(P.swingSparks * (0.4 + 0.6 * power)), power);
+  }
+}
+
+function emitSparks(side, a, L, n, power) {
+  const x = W * (side ? 1 - P.wandInset : P.wandInset) + Math.sin(a) * L, y = H - Math.cos(a) * L;
+  for (let i = 0; i < n; i++) {
+    const ang = Math.random() * 2 * Math.PI, v = (120 + 520 * power) * (0.3 + Math.random()) * H / 1169;
+    if (sparks.length >= P.sparkMax) sparks.shift();
+    sparks.push({ x, y, vx: Math.cos(ang) * v, vy: Math.sin(ang) * v - 60, age: 0, life: 350 + Math.random() * 450,
+      hue: ((side ? 190 : 320) + hueOff + Math.random() * 40 - 20) % 360, size: (3 + Math.random() * 4) * H / 1169 * (1 + power) });
   }
 }
 
@@ -256,7 +317,8 @@ function drawWand(side, a, alpha, fall) {
 
   // Soft outer glow: a capsule round the tube, the light falls off with the distance from the axis.
   // Gradients, not shadowBlur: cheaper, and the blur shows a faint box on a dark screen.
-  const K = T * (3.4 + 1.6 * fz), lit = a => `${h},100%,60%,${a * (0.6 + 0.3 * fz)})`;
+  const pulse = 0.5 + 0.5 * Math.sin(Date.now() * 0.0018 + side * 2);
+  const K = T * (P.auraScale + 1.6 * fz + 0.6 * pulse), lit = a => `${h},100%,60%,${a * (P.auraAlpha + 0.1 * pulse + 0.25 * fz)})`;
   ctx.fillStyle = across(K, [[0, lit(0)], [0.25, lit(0.25)], [0.5, lit(1)], [0.75, lit(0.25)], [1, lit(0)]]);
   ctx.beginPath();
   for (const [u, f] of [[G, -K], [1, -K], [1, K], [G, K]]) ctx.lineTo(hw(u) * f, -u * L);
@@ -268,6 +330,17 @@ function drawWand(side, a, alpha, fall) {
     ctx.beginPath();
     ctx.arc(0, -u * L, R, u < 1 ? 0 : Math.PI, u < 1 ? Math.PI : 0);
     ctx.fill();
+  }
+  // Swing trail: ghost copies of the tube fan out behind the stroke, fading with the swing energy.
+  if (trailE > 0.03) {
+    ctx.globalCompositeOperation = 'lighter';
+    for (let k = 1; k <= P.trailFan; k++) {
+      ctx.save();
+      ctx.rotate(swingDir * k * P.trailStep * Math.min(1, trailE + 0.3));
+      fill(`${h},100%,70%,${0.45 * trailE * (1 - k / (P.trailFan + 1))})`, G, 1, T * 1.15, true);
+      ctx.restore();
+    }
+    ctx.globalCompositeOperation = 'source-over';
   }
   // Translucent tube with shaded rims.
   fill(across(T, [[0, `${h},100%,30%,0.95)`], [0.1, `${h},100%,52%,0.8)`], [0.5, `${h},100%,66%,0.5)`],
@@ -304,7 +377,21 @@ function drawWand(side, a, alpha, fall) {
   fill(across(1.08, [[0, `${h},20%,18%)`], [0.2, `${h},20%,80%)`], [0.33, `${h},10%,100%)`], [0.55, `${h},25%,40%)`],
     [0.85, `${h},60%,75%)`], [1, `${h},20%,15%)`]]), G - 0.04, G, 1.08);
   fill('hsla(0,0%,0%,0.45)', G - 0.047, G - 0.04, 1.04);
+  // Light motes drifting up along the tube.
+  const now = Date.now(), px = H / 1169;
+  ctx.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < P.motes; i++) {
+    const u = (i / P.motes + now * P.moteSpeed * (0.7 + (i % 3) * 0.3)) % 1, uu = G + (1.1 - G) * u;
+    const x = Math.sin(now * 0.0016 * (1 + (i % 4) * 0.3) + i * 2.1) * hw(Math.min(uu, 1)) * T * (1.6 + (i % 5) * 0.6);
+    const y = -uu * L, fade = Math.sin(Math.PI * u), rr = (2 + (i % 3)) * px * 1.6;
+    ctx.fillStyle = `${h},100%,80%,${0.2 * fade})`;
+    ctx.beginPath(); ctx.arc(x, y, rr * 3, 0, 7); ctx.fill();
+    ctx.fillStyle = `${h},100%,92%,${0.9 * fade})`;
+    ctx.beginPath(); ctx.arc(x, y, rr, 0, 7); ctx.fill();
+  }
+  ctx.globalCompositeOperation = 'source-over';
   ctx.restore();
+
 }
 
 function draw() {
@@ -313,22 +400,36 @@ function draw() {
 
   const now = Date.now();
   const t = dropping ? Math.min(1, (now - dropStart) / P.fallMs) : 0;
-  if (fz > 0.01) drawEdgeGlow(now, (1 - t) * fz);
+  drawEdgeGlow(now, (1 - t) * (P.edgeBase + (1 - P.edgeBase) * fz));
   const live = bandLive(now);
-  for (let side = 0; side < 2; side++) {
-    const a = (side ? -1 : 1) * P.wandTilt + (live ? P.bandWaveAmp : P.waveAmp * (1 + 0.6 * fz)) * Math.sin(wavePhase + side * 1.1) + (live ? bandRoll : lean);
-    drawWand(side, a, 1 - t, t * t * 500);
-  }
+  for (let side = 0; side < 2; side++) drawWand(side, angleOf(side, live), 1 - t, t * t * 500);
+  drawSparks();
 }
 
-// Soft rainbow glow pulsing at the left and right screen edges.
+function drawSparks() {
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.lineCap = 'round';
+  for (const s of sparks) {
+    const k = 1 - s.age / s.life;
+    ctx.strokeStyle = `hsla(${s.hue},100%,${60 + 30 * k}%,${k})`;
+    ctx.lineWidth = s.size * (0.4 + k);
+    ctx.beginPath();
+    ctx.moveTo(s.x, s.y);
+    ctx.lineTo(s.x - s.vx * 0.03, s.y - s.vy * 0.03);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// Soft rainbow glow at the left and right screen edges: low at rest, strong in frenzy.
 function drawEdgeGlow(now, k) {
-  const pulse = 0.65 + 0.35 * Math.sin(now * 0.012);
-  const gw = 260;
+  const pulse = 0.65 + 0.35 * Math.sin(now * (0.0025 + 0.0095 * fz));
+  const gw = Math.max(260, W * 0.1);
   for (let side = 0; side < 2; side++) {
     const x0 = side ? W : 0, x1 = side ? W - gw : gw;
     const g = ctx.createLinearGradient(x0, 0, x1, 0);
-    const hue = hueOff + side * 180;
+    const hue = (side ? 190 : 320) + hueOff;
     g.addColorStop(0, `hsla(${hue},100%,60%,${0.45 * pulse * k})`);
     g.addColorStop(1, `hsla(${hue},100%,60%,0)`);
     ctx.fillStyle = g;
@@ -351,7 +452,7 @@ window.bridge.onSpawnWhip(() => {
   spawnTime = Date.now();
   prevMouseX = mouseX;
   lean = 0;
-  frenzyUntil = 0; cheers = []; fz = 0;
+  frenzyUntil = 0; fz = 0;
   playSwoosh();
 });
 

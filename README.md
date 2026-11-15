@@ -34,8 +34,10 @@ flowchart TD
   shake -->|yes: band only| detect[Shake detection]
   shake -->|no: mouse fallback| detect
   detect --> sticks[Glowstick overlay]
-  detect -->|crack| chime[Chime and frenzy count]
-  chime -->|3 cheers in 2 s| frenzy[Frenzy]
+  detect -->|crack| chime[Chime or fanfare]
+  detect -->|every swing| fx[Trail and sparks]
+  fx --> sticks
+  chime -->|each typed cheer| frenzy[Frenzy]
   detect -->|crack| guard{Front app is Messages?}
   guard -->|yes| skip[Send nothing]
   guard -->|no| type[Ctrl-C, phrase, Return]
@@ -81,12 +83,24 @@ No environment variable is read. Edit the values in the files below.
 | `cheerPumpPx` | 40 | A cheer pushes the sticks up along their axis by this much (px) |
 | `crackSpeed` | 60 | Mouse speed that counts as a crack (px/frame) |
 | `crackCooldownMs` | 200 | Minimum time between cracks (ms) |
-| `cheerCooldownMs` | 3000 | After a typed cheer, no further cheer is typed for this long (ms); chime, pump and frenzy still react. A continuous shake types one cheer per this interval |
+| `cheerCooldownMs` | 3000 | After a typed cheer, no further cheer is typed for this long (ms); only the chime and the pump react (swing trail and sparks always do). A continuous shake types one cheer per this interval |
 | `firstCrackGraceMs` | 350 | No crack for this long after the sticks appear (ms) |
 | `fallMs` | 600 | Drop animation time (ms) |
-| `frenzyCheers` | 3 | Cheers in the window that start frenzy |
-| `frenzyWindowMs` | 2000 | Frenzy counting window (ms) |
-| `frenzyMs` | 4000 | Frenzy length (ms) |
+| `frenzyMs` | 4000 | Frenzy length (ms); every typed cheer starts it |
+| `auraScale` | 8 | Wand aura radius at rest, in tube half-widths |
+| `auraAlpha` | 0.45 | Aura strength at rest |
+| `motes` | 10 | Drifting light motes per wand |
+| `moteSpeed` | 0.00007 | Mote rise speed (share of the tube per ms) |
+| `edgeBase` | 0.25 | Screen-edge glow at rest, as a share of the frenzy level |
+| `swingDps` | 300 | Wrist gyro speed that counts as one swing stroke (deg/s); each forward or back stroke gives trail and sparks |
+| `swingEndDps` | 120 | A stroke ends below this (deg/s) |
+| `swingFullDps` | 1000 | Gyro speed that gives full-size swing feedback (deg/s) |
+| `swingMousePx` | 30 | Mouse px/frame that counts as a swing stroke (no band) |
+| `swingSparks` | 40 | Sparks per wand in the burst of a full swing |
+| `sparkMax` | 160 | Most sparks alive at once |
+| `trailMs` | 250 | Swing trail fade time constant (ms) |
+| `trailFan` | 8 | Ghost copies in the swing trail |
+| `trailStep` | 0.035 | Angle between ghost copies at full energy (rad) |
 
 Sound: the chime, swoosh and fanfare notes are fixed in `overlay.html` (functions `playChime`, `playSwoosh`, `playFanfare`); they have no settings.
 
