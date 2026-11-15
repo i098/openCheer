@@ -94,6 +94,8 @@ async def main():
     if wav:
         source.task = task
     await PipelineRunner(handle_sigint=True).run(task)
+    if not wav:
+        sys.exit("pipeline ended (Deepgram connection closed?)")  # non-zero: openCheer restarts the sidecar
 
 
 asyncio.run(main())
