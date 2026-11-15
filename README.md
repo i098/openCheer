@@ -4,6 +4,8 @@
 
 Sometimes claude code is going too shlow, and you must cheer him on.. with glowsticks!
 
+The overlay shows two 3D glow wands, one for each hand, in a first-person view from the bottom of the screen.
+
 ## Install + run
 
 ```bash
@@ -50,10 +52,11 @@ No environment variable is read. Edit the values in the files below.
 
 | Name | Default | What it does |
 |---|---|---|
-| `stickLength` | 300 | Stick length (px) |
-| `stickWidth` | 26 | Stick width (px) |
-| `edgeMargin` | 100 | Distance of the first stick from the screen edge (px) |
-| `stickSpacing` | 110 | X gap between sticks on one edge (px) |
+| `wandLength` | 0.72 | Wand length from the hand to the tip (share of the screen height) |
+| `wandWidth` | 0.115 | Grip width at the hand (share of the screen height) |
+| `wandTaper` | 0.45 | Tip width divided by grip width at rest; the tip is farther from the viewer |
+| `wandInset` | 0.17 | Distance of each hand from its screen edge (share of the screen width) |
+| `wandTilt` | 0.13 | Inward tilt at rest (rad) |
 | `waveAmp` | 0.2 | Idle wave size (rad) |
 | `waveSpeed` | 0.0022 | Idle wave speed (rad/ms) |
 | `leanByMouseX` | 0.012 | Lean per px of mouse speed (rad) |

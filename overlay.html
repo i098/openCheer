@@ -4,17 +4,18 @@
 <style>
   * { margin: 0; padding: 0; cursor: none; }
   html, body { overflow: hidden; background: transparent; width: 100%; height: 100%; }
-  canvas { display: block; }
+  canvas { display: block; width: 100%; height: 100%; }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
 <script>
 const P = {
-  stickLength:   300,   // px
-  stickWidth:    26,    // px
-  edgeMargin:    100,    // distance of the first stick from the screen edge
-  stickSpacing:  110,   // x gap between sticks on the same edge
+  wandLength:    0.72,  // hand to tip, as a share of the screen height
+  wandWidth:     0.115, // grip width at the hand, as a share of the screen height
+  wandTaper:     0.45,  // tip width / grip width at rest: the tip is farther from the viewer
+  wandInset:     0.17,  // hand x from the screen edge, as a share of the screen width
+  wandTilt:      0.13,  // inward tilt at rest (radians)
   waveAmp:       0.2,   // idle wave (radians)
   waveSpeed:     0.0022,// idle wave (radians per ms)
   leanByMouseX:  0.012, // lean (radians) per px of horizontal mouse speed
@@ -49,15 +50,21 @@ const P = {
 
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
-let W, H;
+let W, H, dpr;
 
-function resize() { W = canvas.width = window.innerWidth; H = canvas.height = window.innerHeight; }
+// Backing store in device pixels (2x at most), drawing in CSS pixels: sharp on Retina.
+function resize() {
+  dpr = Math.min(2, window.devicePixelRatio || 1);
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
 resize();
 window.addEventListener('resize', resize);
 
 let mouseX = 0, mouseY = 0;
 let prevMouseX = 0;
-let sticks = null;
+let shown = false;
 let dropping = false, dropStart = 0;
 let lastCheerTyped = -Infinity;
 let lastCrackTime = 0;
@@ -99,28 +106,7 @@ let lastFrame = Date.now(), wavePhase = 0, hueOff = 0, fz = 0, frenzyUntil = 0, 
 document.addEventListener('mousemove', e => { mouseX = e.clientX; });
 
 function startDrop() {
-  if (sticks && !dropping) { dropping = true; dropStart = Date.now(); }
-}
-
-// Three sticks per screen edge, bases in the lower half, fanned slightly.
-function spawnSticks() {
-  dropping = false;
-  lastCrackTime = 0;
-  spawnTime = Date.now();
-  const out = [];
-  for (let side = 0; side < 2; side++) {
-    for (let k = 0; k < 3; k++) {
-      const i = side * 3 + k;
-      const x = side ? W - P.edgeMargin - k * P.stickSpacing : P.edgeMargin + k * P.stickSpacing;
-      out.push({
-        x, y: H * (0.7 + 0.08 * k),
-        tilt: (k - 1) * 0.15,
-        hue: i * 60 + 300,
-        phase: i * 1.1,
-      });
-    }
-  }
-  return out;
+  if (shown && !dropping) { dropping = true; dropStart = Date.now(); }
 }
 
 // ── Synth sound (Web Audio, no files). Never throws. ────────────────────────
@@ -180,7 +166,7 @@ const playFanfare = () => sfx((a, t) => {
 });
 
 function update() {
-  if (!sticks) return;
+  if (!shown) return;
   const mvx = mouseX - prevMouseX;
   prevMouseX = mouseX;
   const target = Math.max(-P.leanClamp, Math.min(P.leanClamp, mvx * P.leanByMouseX));
@@ -221,63 +207,116 @@ function update() {
   }
 
   if (dropping && now - dropStart > P.fallMs) {
-    sticks = null;
+    shown = false;
     dropping = false;
     window.bridge.hideOverlay();
   }
 }
 
-// A rigid cylinder pointing up from its base, rotated by `a` around the base.
-function drawStick(s, a, alpha, fall) {
-  const L = P.stickLength, w = P.stickWidth, h = `hsl(${(s.hue + hueOff) % 360}`;
+// One hand-held wand in first-person view: the hand is at the bottom screen edge, the tip is far.
+// Rotated by `a` around the hand. Local y runs from 0 (hand) to -L (tip).
+function drawWand(side, a, alpha, fall) {
+  const sp = Math.sin(pitch); // > 0: tip toward the viewer
+  const L = P.wandLength * H * Math.cos(pitch), w0 = P.wandWidth * H;
+  let w1 = w0 * P.wandTaper * Math.exp(0.9 * sp); // perspective cue: the tip grows toward the viewer and shrinks away
+  if (Math.abs(w0 - w1) < 1) w1 = w0 - 1; // the edges must meet somewhere, see across()
+  const G = 0.27, T = 0.86; // grip share of the length, tube share of the width
+  const h = `hsl(${((side ? 190 : 320) + hueOff) % 360}`, white = a => `hsla(0,0%,100%,${a})`;
+  const hw = u => (w0 + (w1 - w0) * u) / 2;
+  // Rings round the wand show as curves: seen from above near the hand, from below near the tip.
+  const sag = u => 0.45 - 0.7 * u + 0.4 * sp;
+  // Path of the body from u0 to u1 (0 hand, 1 tip) at share f of the width; `dome` rounds the far end.
+  const body = (u0, u1, f, dome) => {
+    const r0 = hw(u0) * f, r1 = hw(u1) * f, y0 = -u0 * L, y1 = -u1 * L;
+    ctx.beginPath();
+    ctx.moveTo(-r0, y0);
+    ctx.lineTo(-r1, y1);
+    if (dome) ctx.arc(0, y1, r1, Math.PI, 0); else ctx.quadraticCurveTo(0, y1 + 2 * r1 * sag(u1), r1, y1);
+    ctx.lineTo(r0, y0);
+    ctx.quadraticCurveTo(0, y0 + 2 * r0 * sag(u0), -r0, y0);
+  };
+  // Shading across the width (t: 0 left, 1 right) that narrows with the taper:
+  // a conic gradient whose centre is the point where the two edges meet.
+  // Keep each list at 6 stops or fewer, so the GPU computes the gradient and does not sample a coarse texture.
+  const apex = -L * w0 / (w0 - w1), up = apex < 0;
+  const across = (f, stops) => {
+    const th = Math.atan(f * w0 / 2 / Math.abs(apex));
+    const g = ctx.createConicGradient((up ? 1 : -1) * Math.PI / 2 - th, 0, apex);
+    for (const [t, c] of stops) g.addColorStop((up ? 1 - t : t) * th / Math.PI, c);
+    return g;
+  };
+  const fill = (style, ...path) => { body(...path); ctx.fillStyle = style; ctx.fill(); };
+
   ctx.save();
   ctx.globalAlpha = alpha;
-  ctx.translate(s.x, s.y + fall);
+  ctx.translate(W * (side ? 1 - P.wandInset : P.wandInset), H + fall);
   ctx.rotate(a);
   ctx.translate(0, -P.cheerPumpPx * pump);
-  const sp = Math.sin(pitch); // > 0: tip toward the viewer
-  ctx.scale(1, Math.cos(pitch));
-  const g = ctx.createLinearGradient(-w / 2, 0, w / 2, 0);
-  g.addColorStop(0, `${h},100%,25%)`);
-  g.addColorStop(0.3, `${h},100%,60%)`);
-  g.addColorStop(0.5, `${h},100%,85%)`);
-  g.addColorStop(0.75, `${h},100%,55%)`);
-  g.addColorStop(1, `${h},100%,22%)`);
-  ctx.shadowColor = `${h},100%,60%)`;
-  ctx.shadowBlur = 28 + 30 * fz;
-  ctx.fillStyle = g;
+
+  // Soft outer glow: a capsule round the tube, the light falls off with the distance from the axis.
+  // Gradients, not shadowBlur: cheaper, and the blur shows a faint box on a dark screen.
+  const K = T * (3.4 + 1.6 * fz), lit = a => `${h},100%,60%,${a * (0.6 + 0.3 * fz)})`;
+  ctx.fillStyle = across(K, [[0, lit(0)], [0.25, lit(0.25)], [0.5, lit(1)], [0.75, lit(0.25)], [1, lit(0)]]);
   ctx.beginPath();
-  ctx.roundRect(-w / 2, -L, w, L, w / 2);
+  for (const [u, f] of [[G, -K], [1, -K], [1, K], [G, K]]) ctx.lineTo(hw(u) * f, -u * L);
   ctx.fill();
-  ctx.shadowBlur = 0;
-  ctx.fillStyle = `${h},60%,14%)`; // darker grip at the base
-  ctx.beginPath();
-  ctx.roundRect(-w / 2, -L * 0.18, w, L * 0.18, w / 2);
-  ctx.fill();
-  ctx.fillStyle = 'hsla(0,0%,100%,0.85)'; // thin highlight
-  ctx.beginPath();
-  ctx.roundRect(-w * 0.28, -L + w * 0.6, w * 0.1, L * 0.7, w * 0.05);
-  ctx.fill();
-  if (Math.abs(sp) > 0.02) { // perspective cue: tip bigger and brighter toward the viewer, smaller and dimmer away
-    ctx.fillStyle = `${h},100%,${70 + 25 * sp}%)`;
+  for (const u of [G, 1]) { // round ends
+    const R = hw(u) * K, g = ctx.createRadialGradient(0, -u * L, 0, 0, -u * L, R);
+    g.addColorStop(0, lit(1)); g.addColorStop(0.5, lit(0.25)); g.addColorStop(1, lit(0));
+    ctx.fillStyle = g;
     ctx.beginPath();
-    ctx.ellipse(0, -L, w * 0.5 * (1 + 0.6 * sp), w * 0.5 * (1 + 0.6 * sp), 0, 0, 7);
+    ctx.arc(0, -u * L, R, u < 1 ? 0 : Math.PI, u < 1 ? Math.PI : 0);
     ctx.fill();
   }
+  // Translucent tube with shaded rims.
+  fill(across(T, [[0, `${h},100%,30%,0.95)`], [0.1, `${h},100%,52%,0.8)`], [0.5, `${h},100%,66%,0.5)`],
+    [0.9, `${h},100%,50%,0.8)`], [1, `${h},100%,26%,0.95)`]]), G - 0.03, 1, T, true);
+  // Inner glowing core: a soft halo, then the hot rod.
+  fill(across(T * 0.62, [[0, `${h},100%,75%,0)`], [0.5, `${h},100%,88%,0.9)`], [1, `${h},100%,75%,0)`]]), G - 0.03, 0.985, T * 0.62, true);
+  fill(across(T * 0.26, [[0, `${h},100%,78%)`], [0.5, `${h},100%,98%)`], [1, `${h},100%,78%)`]]), G - 0.03, 0.975, T * 0.26, true);
+  // Specular strip on the left of the tube, faded at both ends.
+  const sg = ctx.createLinearGradient(0, -G * L, 0, -L);
+  sg.addColorStop(0.03, white(0)); sg.addColorStop(0.15, white(0.8)); sg.addColorStop(0.7, white(0.55)); sg.addColorStop(0.95, white(0));
+  ctx.fillStyle = sg;
+  ctx.beginPath();
+  for (const [u, f] of [[G, -0.62], [0.96, -0.62], [0.96, -0.46], [G, -0.46]]) ctx.lineTo(hw(u) * T * f, -u * L);
+  ctx.fill();
+  // Hot spot in the rounded tip, brighter toward the viewer.
+  const r = hw(1) * T, tg = ctx.createRadialGradient(-r * 0.25, -L - r * 0.3, 0, 0, -L, r);
+  tg.addColorStop(0, white(0.6 + 0.35 * sp));
+  tg.addColorStop(1, white(0));
+  ctx.fillStyle = tg;
+  ctx.beginPath();
+  ctx.arc(0, -L, r, 0, 7);
+  ctx.fill();
+
+  // Grip: dark rubber that takes a little of the tube colour, with raised ridges.
+  const rubber = l => across(1.06, [[0, `${h},25%,${l * 0.2}%)`], [0.22, `${h},22%,${l * 0.8}%)`], [0.36, `${h},20%,${l}%)`],
+    [0.7, `${h},25%,${l * 0.45}%)`], [0.93, `${h},60%,${l * 0.9}%)`], [1, `${h},30%,${l * 0.3}%)`]]);
+  fill(rubber(26), -0.12, G - 0.035, 1);
+  const ridge = rubber(44);
+  for (let u = 0.02; u < G - 0.08; u += 0.03) {
+    fill('hsla(0,0%,0%,0.6)', u - 0.007, u, 1);
+    fill(ridge, u, u + 0.013, 1.06);
+  }
+  // Chrome collar where the tube leaves the grip.
+  fill(across(1.08, [[0, `${h},20%,18%)`], [0.2, `${h},20%,80%)`], [0.33, `${h},10%,100%)`], [0.55, `${h},25%,40%)`],
+    [0.85, `${h},60%,75%)`], [1, `${h},20%,15%)`]]), G - 0.04, G, 1.08);
+  fill('hsla(0,0%,0%,0.45)', G - 0.047, G - 0.04, 1.04);
   ctx.restore();
 }
 
 function draw() {
   ctx.clearRect(0, 0, W, H);
-  if (!sticks) return;
+  if (!shown) return;
 
   const now = Date.now();
   const t = dropping ? Math.min(1, (now - dropStart) / P.fallMs) : 0;
   if (fz > 0.01) drawEdgeGlow(now, (1 - t) * fz);
-  for (const s of sticks) {
-    const live = bandLive(now);
-    const a = s.tilt + (live ? P.bandWaveAmp : P.waveAmp * (1 + 0.6 * fz)) * Math.sin(wavePhase + s.phase) + (live ? bandRoll : lean);
-    drawStick(s, a, 1 - t, t * t * 500);
+  const live = bandLive(now);
+  for (let side = 0; side < 2; side++) {
+    const a = (side ? -1 : 1) * P.wandTilt + (live ? P.bandWaveAmp : P.waveAmp * (1 + 0.6 * fz)) * Math.sin(wavePhase + side * 1.1) + (live ? bandRoll : lean);
+    drawWand(side, a, 1 - t, t * t * 500);
   }
 }
 
@@ -305,7 +344,10 @@ loop();
 
 // ── IPC from main process ───────────────────────────────────────────────────
 window.bridge.onSpawnWhip(() => {
-  sticks = spawnSticks();
+  shown = true;
+  dropping = false;
+  lastCrackTime = 0;
+  spawnTime = Date.now();
   prevMouseX = mouseX;
   lean = 0;
   frenzyUntil = 0; cheers = []; fz = 0;
