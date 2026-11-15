@@ -21,7 +21,7 @@ sudo apt install xdotool
 
 ## Controls
 
-- Click tray icon: open the control window. Use its switches to show or drop the glowsticks, turn the floating sparkle dots on or off (default on), and see if the band is connected.
+- Click tray icon: open the control window. Use its switches to show or drop the glowsticks, turn the floating sparkle dots on or off (default off), choose with the Say my words switch whether a voice cheer types what you said or a preset phrase, and see if the band is connected.
 - Cheer him on 🎉
 - It sends an interrupt (Ctrl-C) and one of 6 encouraging messages, or the words you said (voice)!
 
@@ -30,6 +30,8 @@ sudo apt install xdotool
 openCheer sends the microphone through a Pipecat pipeline in `voice/voice.py` to Deepgram streaming speech-to-text. The sidecar prints `SAY <text>` for each final transcript, and openCheer types those words with the same typed cheer, frenzy and `cheerCooldownMs` (3 s) cooldown as a band shake. It also prints `LEVEL <0..1>` (microphone loudness, about 15 times a second); the louder you are, the more each glowstick fills with light.
 
 ## Voice
+
+On macOS the first start shows the microphone prompt for Electron. Start Electron as its own app, not from a terminal: `open -n /path/to/openCheer/node_modules/electron/dist/Electron.app --args /path/to/openCheer`. A terminal or ssh parent can become the app that macOS asks about. If access is denied, one log line says so.
 
 Say anything and openCheer types what Deepgram heard, then Return, like a shake does (same Ctrl-C, frenzy and `cheerCooldownMs`; a transcript inside the cooldown is dropped). Voice types only while the glowsticks are shown. Band shakes still type a random phrase. The louder you speak, the more each glowstick fills with light from the bottom: dim and empty when silent, full and bright at a shout. Without a voice sidecar the sticks look as before. A Pipecat pipeline sends the microphone to Deepgram speech-to-text.
 
@@ -113,7 +115,8 @@ flowchart TD
 | `frenzyMs` | 4000 | Frenzy length (ms); every typed cheer starts it |
 | `auraScale` | 3 | Wand aura radius at rest, in tube half-widths |
 | `auraAlpha` | 0.45 | Aura strength at rest |
-| `motes` | 10 | Sparkle dots per wand; the control window's Sparkles switch (default on) shows or hides them. The swing burst and trail stay on |
+| `motes` | 10 | Sparkle dots per wand; the control window's Sparkles switch (default off) shows or hides them. The swing burst and trail stay on |
+| Say my words switch (control window) | on | On: a voice cheer types the words heard. Off: any speech still fires a cheer and fills the sticks, but the typed text is a random preset phrase (`phrases` in `sendMacro`) |
 | `moteSpeed` | 0.00007 | Mote rise speed (share of the tube per ms) |
 | `edgeBase` | 0.25 | Screen-edge glow at rest, as a share of the frenzy level |
 | `swingDps` | 300 | Wrist gyro speed that counts as one swing stroke (deg/s); each forward or back stroke gives trail and sparks |

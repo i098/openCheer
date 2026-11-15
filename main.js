@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, screen } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, screen, systemPreferences } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { execFile, spawn } = require('child_process');
@@ -19,7 +19,7 @@ if (process.platform === 'win32') {
 
 // ── Globals ─────────────────────────────────────────────────────────────────
 let tray, overlay, ctl;
-let glowOn = false, bandOn = false, sparklesOn = true;
+let glowOn = false, bandOn = false, sparklesOn = false, wordsOn = true;
 let overlayReady = false;
 let spawnQueued = false;
 
@@ -132,7 +132,7 @@ function createOverlay() {
 }
 
 function pushState() {
-  if (ctl && !ctl.isDestroyed()) ctl.webContents.send('control-state', { enabled: glowOn, band: bandOn, sparkles: sparklesOn });
+  if (ctl && !ctl.isDestroyed()) ctl.webContents.send('control-state', { enabled: glowOn, band: bandOn, sparkles: sparklesOn, words: wordsOn });
 }
 
 function setGlow(on) {
@@ -158,7 +158,7 @@ function showControl(inactive) {
   if (ctl && !ctl.isDestroyed()) return ctl.show();
   const wa = screen.getPrimaryDisplay().workArea;
   ctl = new BrowserWindow({
-    width: 280, height: 190, useContentSize: true,
+    width: 280, height: 240, useContentSize: true,
     x: wa.x + wa.width - 280 - 16, y: wa.y + 16,
     alwaysOnTop: true,
     resizable: false, minimizable: false, maximizable: false, fullscreenable: false,
@@ -186,8 +186,9 @@ ipcMain.on('sparkles-set', (_e, on) => {
   if (overlay && overlayReady) overlay.webContents.send('sparkles', sparklesOn);
   pushState();
 });
+ipcMain.on('words-set', (_e, on) => { wordsOn = !!on; pushState(); });
 ipcMain.on('control-set', (_e, on) => setGlow(!!on));
-ipcMain.handle('control-get', () => ({ enabled: glowOn, band: bandOn, sparkles: sparklesOn }));
+ipcMain.handle('control-get', () => ({ enabled: glowOn, band: bandOn, sparkles: sparklesOn, words: wordsOn }));
 
 // ── Macro: immediate Ctrl+C, type "Go FASER", Enter ───────────────────────
 function sendMacro(spoken) {
@@ -200,7 +201,7 @@ function sendMacro(spoken) {
     'You are doing amazing!',
     'Keep it up, champion!',
   ];
-  const chosen = typeof spoken === 'string' && spoken.trim() ? cleanSpoken(spoken) : phrases[Math.floor(Math.random() * phrases.length)];
+  const chosen = wordsOn && typeof spoken === 'string' && spoken.trim() ? cleanSpoken(spoken) : phrases[Math.floor(Math.random() * phrases.length)];
 
   if (process.platform === 'win32') {
     sendMacroWindows(chosen);
@@ -321,8 +322,21 @@ app.whenReady().then(async () => {
   stopBand = startBand(m => {
     if (overlay && overlayReady) overlay.webContents.send('band-motion', m);
   }, console.log, on => { bandOn = on; pushState(); });
+  if (process.platform === 'darwin') await askMic();
   stopVoice = startVoice() || stopVoice;
 });
+
+// macOS shows the microphone prompt only for the app that asks. The sidecar is a bare python
+// child that never prompts, so Electron asks first; its Info.plist has NSMicrophoneUsageDescription.
+async function askMic() {
+  try {
+    if (systemPreferences.getMediaAccessStatus('microphone') !== 'granted') await systemPreferences.askForMediaAccess('microphone');
+    const s = systemPreferences.getMediaAccessStatus('microphone');
+    if (s !== 'granted') console.log(`microphone access ${s}: voice hears silence. Allow openCheer/Electron in System Settings > Privacy & Security > Microphone, then restart`);
+  } catch (err) {
+    console.log('microphone access check failed:', err.message);
+  }
+}
 
 // ── Voice: Pipecat + Deepgram sidecar prints LEVEL and SAY lines ────────
 function startVoice() {
