@@ -185,7 +185,8 @@ function update() {
   bandRoll += (clamped - bandRoll) * (1 - Math.exp(-dt / P.bandSmoothMs));
   pump *= Math.exp(-dt / 120);
   pitch *= Math.exp(-dt / P.bandPitchReturnMs);
-  const shake = live && bandShake;
+  // A shake that never goes quiet counts again once the cheer cooldown has passed.
+  const shake = live && (bandShake || (shaking && now - lastCheerTyped >= P.cheerCooldownMs));
   bandShake = false;
   if (!dropping && (live ? shake : Math.hypot(mvx) > P.crackSpeed) &&
       now - spawnTime >= P.firstCrackGraceMs && now - lastCrackTime > P.crackCooldownMs) {
