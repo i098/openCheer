@@ -1,7 +1,7 @@
 const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, screen, systemPreferences } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { execFile, spawn } = require('child_process');
+const { execFile, execFileSync, spawn } = require('child_process');
 const { startBand } = require('./band');
 
 // ── Win32 FFI (Windows only) ────────────────────────────────────────────────
@@ -31,6 +31,10 @@ const VK_MENU    = 0x12; // Alt
 const VK_TAB     = 0x09;
 const KEYUP      = 0x0002;
 
+const MAC_RELEASE = 'key up {control, shift, option, command}';
+const MAC_RELEASE_SCRIPT = `tell application "System Events" to ${MAC_RELEASE}`;
+const OSA_OPTS = { timeout: 5000 };
+
 /** One Alt+Tab / Cmd+Tab so focus returns to the previously active app after tray click. */
 function refocusPreviousApp() {
   const delayMs = 80;
@@ -47,9 +51,10 @@ function refocusPreviousApp() {
         '  key down command',
         '  key code 48', // Tab
         '  key up command',
+        `  ${MAC_RELEASE}`,
         'end tell',
       ].join('\n');
-      execFile('osascript', ['-e', script], err => {
+      execFile('osascript', ['-e', script], OSA_OPTS, err => {
         if (err) {
           console.warn('refocus previous app (Cmd+Tab) failed:', err.message);
         }
@@ -224,6 +229,7 @@ function macTypeScript(text) {
     'tell application "System Events"',
     `  keystroke "${escaped}"`,
     '  key code 36', // Enter
+    `  ${MAC_RELEASE}`,
     'end tell'
   ].join('\n');
 }
@@ -255,11 +261,11 @@ function sendMacroWindows(text) {
 }
 
 // Never type into Messages: a cheer there goes to a real chat. If the front app is unknown, skip too.
-function ifNotMessages(run) {
+function ifNotMessages(run, onSkip) {
   const script = 'tell application "System Events" to get name of first application process whose frontmost is true';
-  execFile('osascript', ['-e', script], (err, out) => {
-    if (err) return console.warn('mac macro skipped, front app unknown:', err.message);
-    if (out.trim() === 'Messages') return;
+  execFile('osascript', ['-e', script], OSA_OPTS, (err, out) => {
+    if (err) { console.warn('mac macro skipped, front app unknown:', err.message); return onSkip(); }
+    if (out.trim() === 'Messages') return onSkip();
     run();
   });
 }
@@ -272,32 +278,42 @@ function axTrusted() {
   return false;
 }
 
+let macMacroBusy = false;
 function sendMacroMac(text) {
   if (!axTrusted()) return;
-  ifNotMessages(() => sendMacroMacUnchecked(text));
+  if (macMacroBusy) return; // drop cheers that arrive while a macro runs
+  macMacroBusy = true;
+  ifNotMessages(() => sendMacroMacUnchecked(text), () => { macMacroBusy = false; });
+}
+
+// Always release every modifier, then free the busy flag.
+function finishMacMacro() {
+  execFile('osascript', ['-e', MAC_RELEASE_SCRIPT], OSA_OPTS, () => { macMacroBusy = false; });
 }
 
 function sendMacroMacUnchecked(text) {
   const interruptScript = [
     'tell application "System Events"',
     '  key code 8 using {control down}', // Ctrl+C interrupt
+    `  ${MAC_RELEASE}`,
     'end tell'
   ].join('\n');
   const typeAndEnterScript = macTypeScript(text);
 
-  execFile('osascript', ['-e', interruptScript], err => {
+  execFile('osascript', ['-e', interruptScript], OSA_OPTS, err => {
     if (err) {
       console.warn('mac macro failed (enable Accessibility for terminal/app):', err.message);
-      return;
+      return finishMacMacro();
     }
 
     setTimeout(() => ifNotMessages(() => {
-      execFile('osascript', ['-e', typeAndEnterScript], err2 => {
+      execFile('osascript', ['-e', typeAndEnterScript], OSA_OPTS, err2 => {
         if (err2) {
           console.warn('mac macro failed (enable Accessibility for terminal/app):', err2.message);
         }
+        finishMacMacro();
       });
-    }), 300);
+    }, finishMacMacro), 300);
   });
 }
 
@@ -380,5 +396,10 @@ function startVoice() {
 
 let stopBand = () => {};
 let stopVoice = () => {};
-app.on('will-quit', () => { stopBand(); stopVoice(); });
+app.on('will-quit', () => {
+  stopBand(); stopVoice();
+  if (process.platform === 'darwin') {
+    try { execFileSync('osascript', ['-e', MAC_RELEASE_SCRIPT], { timeout: 2000 }); } catch {}
+  }
+});
 app.on('window-all-closed', e => e.preventDefault()); // keep alive in tray
