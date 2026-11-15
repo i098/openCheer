@@ -25,6 +25,10 @@ sudo apt install xdotool
 - Cheer him on 🎉
 - It sends an interrupt (Ctrl-C) and one of 5 encouraging messages!
 
+## How we use Deepgram
+
+openCheer sends the microphone through a Pipecat pipeline in `voice/voice.py` to Deepgram streaming speech-to-text. When a transcript contains a cheer phrase, the sidecar prints `CHEER`, and openCheer runs the same typed cheer, frenzy and `cheerCooldownMs` (3 s) cooldown as a band shake.
+
 ## Voice
 
 Say a cheer phrase and openCheer cheers like a shake does (same typed cheer, frenzy and `cheerCooldownMs`). A Pipecat pipeline sends the microphone to Deepgram speech-to-text.
