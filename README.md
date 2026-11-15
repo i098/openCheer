@@ -21,19 +21,19 @@ sudo apt install xdotool
 
 ## Controls
 
-- Click tray icon: open the control window. Use its switches to show or drop the glowsticks, turn the floating sparkle dots on or off (default off), choose with the Say my words switch whether a voice cheer types what you said or a preset phrase, and see if the band is connected.
+- Click tray icon: open the control window. Use its switches to show or drop the glowsticks, turn the floating sparkle dots on or off (default off), choose with the Say my words switch whether your voice is typed live (and a shake presses Return) or a cheer types a preset phrase, and see if the band is connected.
 - Cheer him on 🎉
-- It sends an interrupt (Ctrl-C) and one of 6 encouraging messages, or the words you said (voice)!
+- It sends an interrupt (Ctrl-C) and one of 6 encouraging messages, then Return. With Say my words on it instead types the words you say as you say them, and a shake only presses Return.
 
 ## How we use Deepgram
 
-openCheer sends the microphone through a Pipecat pipeline in `voice/voice.py` to Deepgram streaming speech-to-text. The sidecar prints `SAY <text>` for each final transcript, and openCheer types those words with the same typed cheer, frenzy and `cheerCooldownMs` (3 s) cooldown as a band shake. It also prints `LEVEL <0..1>` (microphone loudness, about 15 times a second); the louder you are, the more each glowstick fills with light.
+openCheer sends the microphone through a Pipecat pipeline in `voice/voice.py` to Deepgram streaming speech-to-text. The sidecar prints `SAY <text>` for each final transcript, and openCheer types those words at once (see below). If the sidecar exits, openCheer logs its exit code and starts it again after 2 s. It also prints `LEVEL <0..1>` (microphone loudness, about 15 times a second); the louder you are, the more each glowstick fills with light.
 
 ## Voice
 
 On macOS the first start shows the microphone prompt for Electron. Start Electron as its own app, not from a terminal: `open -n /path/to/openCheer/node_modules/electron/dist/Electron.app --args /path/to/openCheer`. A terminal or ssh parent can become the app that macOS asks about. If access is denied, one log line says so. Typing the cheer needs the Accessibility switch for Electron (System Settings > Privacy & Security > Accessibility).
 
-Say anything and openCheer types what Deepgram heard, then Return, like a shake does (same Ctrl-C, frenzy and `cheerCooldownMs`; a transcript inside the cooldown is dropped). Voice types only while the glowsticks are shown. Band shakes still type a random phrase. The louder you speak, the more each glowstick fills with light from the bottom: dim and empty when silent, full and bright at a shout. Without a voice sidecar the sticks look as before. A Pipecat pipeline sends the microphone to Deepgram speech-to-text.
+With Say my words on, every final transcript is typed as it arrives, followed by one space, with no Ctrl-C, no Return and no cooldown. On macOS words that arrive while another macro runs wait in a queue of the last 5. A shake presses Return only (same frenzy and `cheerCooldownMs`). Voice types only while the glowsticks are shown. With Say my words off, speech or a shake types a random phrase as before (Ctrl-C, phrase, Return). The louder you speak, the more each glowstick fills with light from the bottom: dim and empty when silent, full and bright at a shout. Without a voice sidecar the sticks look as before. A Pipecat pipeline sends the microphone to Deepgram speech-to-text.
 
 Setup (Pipecat needs Python 3.10 to 3.13; on macOS run `brew install portaudio` first):
 
@@ -104,7 +104,7 @@ flowchart TD
 | `cheerPumpPx` | 40 | A cheer pushes the sticks up along their axis by this much (px) |
 | `crackSpeed` | 60 | Mouse speed that counts as a crack (px/frame) |
 | `crackCooldownMs` | 200 | Minimum time between cracks (ms) |
-| `cheerCooldownMs` | 3000 | After a typed cheer, no further cheer is typed for this long (ms); only the chime and the pump react (swing trail and sparks always do). A continuous shake types one cheer per this interval |
+| `cheerCooldownMs` | 3000 | After a cheer, no further cheer fires for this long (ms); only the chime and the pump react (swing trail and sparks always do). A continuous shake types one cheer per this interval |
 | `levelRise` | 0.5 | Voice fill: per frame, share of the gap to a louder level that is closed (fast rise) |
 | `levelFall` | 0.04 | Voice fill: same for a quieter level (slow drain) |
 | `levelDim` | 0.3 | Opacity of the empty part of the tube, as a share of the lit tube |
@@ -116,7 +116,7 @@ flowchart TD
 | `auraScale` | 3 | Wand aura radius at rest, in tube half-widths |
 | `auraAlpha` | 0.45 | Aura strength at rest |
 | `motes` | 10 | Sparkle dots per wand; the control window's Sparkles switch (default off) shows or hides them. The swing burst and trail stay on |
-| Say my words switch (control window) | on | On: a voice cheer types the words heard. Off: any speech still fires a cheer and fills the sticks, but the typed text is a random preset phrase (`phrases` in `sendMacro`) |
+| Say my words switch (control window) | on | On: every transcript is typed live and a shake presses Return only. Off: any speech or shake fires a cheer that types a random preset phrase (`phrases` in `sendMacro`) |
 | `moteSpeed` | 0.00007 | Mote rise speed (share of the tube per ms) |
 | `edgeBase` | 0.25 | Screen-edge glow at rest, as a share of the frenzy level |
 | `swingDps` | 300 | Wrist gyro speed that counts as one swing stroke (deg/s); each forward or back stroke gives trail and sparks |

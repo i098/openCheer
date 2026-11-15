@@ -180,7 +180,7 @@ function showControl(inactive) {
 // ── IPC ─────────────────────────────────────────────────────────────────────
 ipcMain.on('whip-crack', (_e, text) => {
   try {
-    sendMacro(text);
+    sendMacro(text, wordsOn ? 'enter' : 'full'); // words on: the words are typed live, a cheer only presses Return
   } catch (err) {
     console.warn('sendMacro failed:', err?.message || err);
   }
@@ -196,7 +196,8 @@ ipcMain.on('control-set', (_e, on) => setGlow(!!on));
 ipcMain.handle('control-get', () => ({ enabled: glowOn, band: bandOn, sparkles: sparklesOn, words: wordsOn }));
 
 // ── Macro: immediate Ctrl+C, type "Go FASER", Enter ───────────────────────
-function sendMacro(spoken) {
+// kind: 'full' = Ctrl+C, text, Return (words off); 'words' = text only; 'enter' = Return only.
+function sendMacro(spoken, kind) {
   // Type the spoken words if given, else a random phrase from a list of similar phrases
   const phrases = [
     'You got this!',
@@ -206,14 +207,16 @@ function sendMacro(spoken) {
     'You are doing amazing!',
     'Keep it up, champion!',
   ];
-  const chosen = wordsOn && typeof spoken === 'string' && spoken.trim() ? cleanSpoken(spoken) : phrases[Math.floor(Math.random() * phrases.length)];
+  const text = kind === 'enter' ? '' : kind === 'words' ? cleanSpoken(spoken) + ' ' : phrases[Math.floor(Math.random() * phrases.length)];
+  if (kind === 'words' && !text.trim()) return;
+  const job = { text, ctrlC: kind === 'full', enter: kind !== 'words' };
 
   if (process.platform === 'win32') {
-    sendMacroWindows(chosen);
+    sendMacroWindows(job);
   } else if (process.platform === 'darwin') {
-    sendMacroMac(chosen);
+    sendMacroMac(job);
   } else if (process.platform === 'linux') {
-    sendMacroLinux(chosen);
+    sendMacroLinux(job);
   }
 }
 
@@ -223,18 +226,18 @@ function cleanSpoken(t) {
 }
 
 // AppleScript strings treat only backslash and double quote specially.
-function macTypeScript(text) {
+function macTypeScript(text, enter) {
   const escaped = text.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   return [
     'tell application "System Events"',
-    `  keystroke "${escaped}"`,
-    '  key code 36', // Enter
+    text ? `  keystroke "${escaped}"` : '',
+    enter ? '  key code 36' : '', // Enter
     `  ${MAC_RELEASE}`,
     'end tell'
   ].join('\n');
 }
 
-function sendMacroWindows(text) {
+function sendMacroWindows({ text, ctrlC, enter }) {
   if (!keybd_event || !VkKeyScanA) return;
   const tapKey = vk => {
     keybd_event(vk, 0, 0, 0);
@@ -250,14 +253,17 @@ function sendMacroWindows(text) {
     if (shiftState & 1) keybd_event(0x10, 0, KEYUP, 0); // Shift up
   };
 
-  // Ctrl+C (interrupt)
-  keybd_event(VK_CONTROL, 0, 0, 0);
-  keybd_event(VK_C, 0, 0, 0);
-  keybd_event(VK_C, 0, KEYUP, 0);
-  keybd_event(VK_CONTROL, 0, KEYUP, 0);
+  if (ctrlC) {
+    keybd_event(VK_CONTROL, 0, 0, 0);
+    keybd_event(VK_C, 0, 0, 0);
+    keybd_event(VK_C, 0, KEYUP, 0);
+    keybd_event(VK_CONTROL, 0, KEYUP, 0);
+  }
   for (const ch of text) tapChar(ch);
-  keybd_event(VK_RETURN, 0, 0, 0);
-  keybd_event(VK_RETURN, 0, KEYUP, 0);
+  if (enter) {
+    keybd_event(VK_RETURN, 0, 0, 0);
+    keybd_event(VK_RETURN, 0, KEYUP, 0);
+  }
 }
 
 // Never type into Messages: a cheer there goes to a real chat. If the front app is unknown, skip too.
@@ -279,58 +285,67 @@ function axTrusted() {
 }
 
 let macMacroBusy = false;
-function sendMacroMac(text) {
+const macWordsQueue = []; // words that arrive while a macro runs wait here (last MAC_QUEUE_MAX kept)
+const MAC_QUEUE_MAX = 5;
+function sendMacroMac(job) {
   if (!axTrusted()) return;
-  if (macMacroBusy) return; // drop cheers that arrive while a macro runs
+  if (macMacroBusy) { // a Return-only cheer is dropped (cooldown covers it); words are queued
+    if (!job.ctrlC && job.text) { macWordsQueue.push(job); if (macWordsQueue.length > MAC_QUEUE_MAX) macWordsQueue.shift(); }
+    return;
+  }
   macMacroBusy = true;
-  ifNotMessages(() => sendMacroMacUnchecked(text), () => { macMacroBusy = false; });
+  ifNotMessages(() => sendMacroMacUnchecked(job), finishMacMacro);
+}
+
+// Free the busy flag, then run the next queued words.
+function nextMacMacro() {
+  macMacroBusy = false;
+  const next = macWordsQueue.shift();
+  if (next) sendMacroMac(next);
 }
 
 // Always release every modifier, then free the busy flag.
 function finishMacMacro() {
-  execFile('osascript', ['-e', MAC_RELEASE_SCRIPT], OSA_OPTS, () => { macMacroBusy = false; });
+  execFile('osascript', ['-e', MAC_RELEASE_SCRIPT], OSA_OPTS, nextMacMacro);
 }
 
-function sendMacroMacUnchecked(text) {
+function sendMacroMacUnchecked({ text, ctrlC, enter }) {
   const interruptScript = [
     'tell application "System Events"',
     '  key code 8 using {control down}', // Ctrl+C interrupt
     `  ${MAC_RELEASE}`,
     'end tell'
   ].join('\n');
-  const typeAndEnterScript = macTypeScript(text);
+  const typeScript = macTypeScript(text, enter);
+  const type = () => ifNotMessages(() => {
+    execFile('osascript', ['-e', typeScript], OSA_OPTS, err2 => {
+      if (err2) {
+        console.warn('mac macro failed (enable Accessibility for terminal/app):', err2.message);
+      }
+      finishMacMacro();
+    });
+  }, finishMacMacro);
+  if (!ctrlC) return type();
 
   execFile('osascript', ['-e', interruptScript], OSA_OPTS, err => {
     if (err) {
       console.warn('mac macro failed (enable Accessibility for terminal/app):', err.message);
       return finishMacMacro();
     }
-
-    setTimeout(() => ifNotMessages(() => {
-      execFile('osascript', ['-e', typeAndEnterScript], OSA_OPTS, err2 => {
-        if (err2) {
-          console.warn('mac macro failed (enable Accessibility for terminal/app):', err2.message);
-        }
-        finishMacMacro();
-      });
-    }, finishMacMacro), 300);
+    setTimeout(type, 300);
   });
 }
 
-function sendMacroLinux(text) {
-  execFile(
-    'xdotool',
-    [
-      'key', '--clearmodifiers', 'ctrl+c',
-      'type', '--delay', '1', '--clearmodifiers', '--', text,
-      'key', 'Return',
-    ],
-    err => {
-      if (err) {
-        console.warn('linux macro failed. Install xdotool:', err.message);
-      }
-    }
-  );
+let linuxTail = Promise.resolve(); // keeps typed words in order
+function sendMacroLinux({ text, ctrlC, enter }) {
+  const args = [];
+  if (ctrlC) args.push('key', '--clearmodifiers', 'ctrl+c');
+  if (text) args.push('type', '--delay', '1', '--clearmodifiers', '--', text);
+  if (enter) args.push('key', 'Return');
+  linuxTail = linuxTail.then(() => new Promise(resolve => execFile('xdotool', args, err => {
+    if (err) console.warn('linux macro failed. Install xdotool:', err.message);
+    resolve();
+  })));
 }
 
 // ── App lifecycle ───────────────────────────────────────────────────────────
@@ -376,22 +391,38 @@ function startVoice() {
   } catch {}
   if (!key || !fs.existsSync(script)) return console.log('voice off: set DEEPGRAM_API_KEY and add voice/voice.py');
   const py = process.env.OPENCHEER_PYTHON || path.join(__dirname, 'voice', '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
-  const child = spawn(fs.existsSync(py) ? py : 'python3', [script], {
-    env: { ...process.env, DEEPGRAM_API_KEY: key },
-    stdio: ['ignore', 'pipe', 'inherit'],
-  });
-  child.on('error', err => console.log('voice off:', err.message));
-  let buf = '';
-  child.stdout.on('data', d => {
-    const lines = (buf + d).split('\n');
-    buf = lines.pop();
-    for (const l of lines) {
-      if (!overlay || !overlayReady) continue;
-      if (l.startsWith('LEVEL ')) overlay.webContents.send('voice-level', Number(l.slice(6)) || 0);
-      else if (l.startsWith('SAY ') && l.slice(4).trim()) overlay.webContents.send('voice-cheer', l.slice(4));
-    }
-  });
-  return () => child.kill();
+  let child, quitting = false;
+  const run = () => {
+    child = spawn(fs.existsSync(py) ? py : 'python3', [script], {
+      env: { ...process.env, DEEPGRAM_API_KEY: key },
+      stdio: ['ignore', 'pipe', 'inherit'],
+    });
+    child.on('error', err => console.log('voice off:', err.message));
+    child.on('exit', (code, signal) => {
+      if (quitting) return;
+      console.log(`voice exited (code ${code}, signal ${signal}); restarting in 2 s`);
+      setTimeout(() => { if (!quitting) run(); }, 2000);
+    });
+    let buf = '';
+    child.stdout.on('data', d => {
+      const lines = (buf + d).split('\n');
+      buf = lines.pop();
+      for (const l of lines) {
+        if (!overlay || !overlayReady) continue;
+        if (l.startsWith('LEVEL ')) overlay.webContents.send('voice-level', Number(l.slice(6)) || 0);
+        else if (l.startsWith('SAY ') && l.slice(4).trim()) onSay(l.slice(4));
+      }
+    });
+  };
+  run();
+  return () => { quitting = true; child.kill(); };
+}
+
+// Words on: type each transcript at once while the sticks are shown. Words off: a voice cheer, as before.
+function onSay(text) {
+  if (!wordsOn) return overlay.webContents.send('voice-cheer', text);
+  if (!glowOn) return;
+  try { sendMacro(text, 'words'); } catch (err) { console.warn('sendMacro failed:', err?.message || err); }
 }
 
 let stopBand = () => {};
