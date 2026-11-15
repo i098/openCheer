@@ -1,6 +1,6 @@
 # openCheer
 
-<img src="icon/Template.png" alt="Glowsticks" width="96">
+<img src="assets/screenshot.png" alt="openCheer glowsticks over a chat window" width="100%">
 
 Sometimes claude code is going too shlow, and you must cheer him on.. with glowsticks!
 
