@@ -2,3 +2,6 @@ node_modules/
 dist/
 out/
 *.tgz
+.env
+voice/.venv/
+__pycache__/

@@ -1,7 +1,7 @@
 const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { execFile } = require('child_process');
+const { execFile, spawn } = require('child_process');
 const { startBand } = require('./band');
 
 // ── Win32 FFI (Windows only) ────────────────────────────────────────────────
@@ -310,8 +310,34 @@ app.whenReady().then(async () => {
   stopBand = startBand(m => {
     if (overlay && overlayReady) overlay.webContents.send('band-motion', m);
   }, console.log, on => { bandOn = on; pushState(); });
+  stopVoice = startVoice() || stopVoice;
 });
 
+// ── Voice: Pipecat + Deepgram sidecar prints CHEER on a cheer phrase ────────
+function startVoice() {
+  const script = path.join(__dirname, 'voice', 'voice.py');
+  let key = process.env.DEEPGRAM_API_KEY;
+  try {
+    const m = fs.readFileSync(path.join(__dirname, '.env'), 'utf8').match(/^\s*DEEPGRAM_API_KEY\s*=\s*(.+?)\s*$/m);
+    if (!key && m) key = m[1].replace(/^["']|["']$/g, '');
+  } catch {}
+  if (!key || !fs.existsSync(script)) return console.log('voice off: set DEEPGRAM_API_KEY and add voice/voice.py');
+  const py = process.env.OPENCHEER_PYTHON || path.join(__dirname, 'voice', '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
+  const child = spawn(fs.existsSync(py) ? py : 'python3', [script], {
+    env: { ...process.env, DEEPGRAM_API_KEY: key },
+    stdio: ['ignore', 'pipe', 'inherit'],
+  });
+  child.on('error', err => console.log('voice off:', err.message));
+  let buf = '';
+  child.stdout.on('data', d => {
+    const lines = (buf + d).split('\n');
+    buf = lines.pop();
+    for (const l of lines) if (l.trim() === 'CHEER' && overlay && overlayReady) overlay.webContents.send('voice-cheer');
+  });
+  return () => child.kill();
+}
+
 let stopBand = () => {};
-app.on('will-quit', () => stopBand());
+let stopVoice = () => {};
+app.on('will-quit', () => { stopBand(); stopVoice(); });
 app.on('window-all-closed', e => e.preventDefault()); // keep alive in tray

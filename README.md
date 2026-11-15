@@ -25,6 +25,21 @@ sudo apt install xdotool
 - Cheer him on 🎉
 - It sends an interrupt (Ctrl-C) and one of 5 encouraging messages!
 
+## Voice
+
+Say a cheer phrase and openCheer cheers like a shake does (same typed cheer, frenzy and `cheerCooldownMs`). A Pipecat pipeline sends the microphone to Deepgram speech-to-text.
+
+Phrases: "lets go", "you got this", "come on claude", "keep going", "faster claude" (`PHRASES` in `voice/voice.py`).
+
+Setup (Pipecat needs Python 3.10 to 3.13; on macOS run `brew install portaudio` first):
+
+```bash
+uv venv -p 3.12 voice/.venv && uv pip install -p voice/.venv -r voice/requirements.txt
+echo 'DEEPGRAM_API_KEY=your-key' > .env   # in the app folder, or export it
+```
+
+`opencheer` starts the sidecar when `DEEPGRAM_API_KEY` is set and `voice/voice.py` exists; else it logs one line and runs as before. Run the sidecar alone: `voice/.venv/bin/python voice/voice.py` (add `--wav file.wav` to use a 16 kHz mono wav in place of the microphone). It prints `CHEER` on a match. Spoken replies (Deepgram text-to-speech) are not included.
+
 ## How it works
 
 ```mermaid
@@ -41,6 +56,8 @@ flowchart TD
   detect -->|crack| guard{Front app is Messages?}
   guard -->|yes| skip[Send nothing]
   guard -->|no| type[Ctrl-C, phrase, Return]
+  mic[Microphone] -->|Pipecat| dg[Deepgram speech-to-text]
+  dg -->|cheer phrase| shake
   tray[Tray click] --> win[Control window]
   win -->|switch| sticks
   band -->|connected state| win
@@ -48,7 +65,7 @@ flowchart TD
 
 ## Variables
 
-No environment variable is read. Edit the values in the files below.
+`DEEPGRAM_API_KEY` (environment or an untracked `.env` in the app folder) turns voice on; `OPENCHEER_PYTHON` picks the Python that runs the sidecar (default `voice/.venv`, then `python3`). Edit the values in the files below.
 
 `overlay.html`, object `P` (px, radians, ms):
 
@@ -119,6 +136,7 @@ Sound: the chime, swoosh and fanfare notes are fixed in `overlay.html` (function
 | Name | Default | What it does |
 |---|---|---|
 | `phrases` (in `sendMacro`) | 6 cheers, e.g. "You got this!" | Texts typed on a cheer; one is chosen at random |
+| `PHRASES`, `COOLDOWN_S` (`voice/voice.py`) | 5 phrases, 3 | Phrases that count as a cheer; seconds between two `CHEER` lines |
 | `delayMs` (`refocusPreviousApp`) | 80 | Wait before focus returns to the previous app (ms) |
 | Macro delay (`sendMacroMacUnchecked`) | 300 | macOS: wait between Ctrl-C and the typed phrase (ms) |
 | Skipped app (`ifNotMessages`) | `Messages` | macOS: no cheer is sent when this app is in front |
