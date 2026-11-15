@@ -19,7 +19,7 @@ if (process.platform === 'win32') {
 
 // ── Globals ─────────────────────────────────────────────────────────────────
 let tray, overlay, ctl;
-let glowOn = false, bandOn = false;
+let glowOn = false, bandOn = false, sparklesOn = true;
 let overlayReady = false;
 let spawnQueued = false;
 
@@ -114,6 +114,7 @@ function createOverlay() {
   overlay.loadFile('overlay.html');
   overlay.webContents.on('did-finish-load', () => {
     overlayReady = true;
+    overlay.webContents.send('sparkles', sparklesOn);
     if (spawnQueued && overlay && overlay.isVisible()) {
       spawnQueued = false;
       overlay.webContents.send('spawn-whip');
@@ -130,7 +131,7 @@ function createOverlay() {
 }
 
 function pushState() {
-  if (ctl && !ctl.isDestroyed()) ctl.webContents.send('control-state', { enabled: glowOn, band: bandOn });
+  if (ctl && !ctl.isDestroyed()) ctl.webContents.send('control-state', { enabled: glowOn, band: bandOn, sparkles: sparklesOn });
 }
 
 function setGlow(on) {
@@ -156,7 +157,7 @@ function showControl(inactive) {
   if (ctl && !ctl.isDestroyed()) return ctl.show();
   const wa = screen.getPrimaryDisplay().workArea;
   ctl = new BrowserWindow({
-    width: 280, height: 150, useContentSize: true,
+    width: 280, height: 190, useContentSize: true,
     x: wa.x + wa.width - 280 - 16, y: wa.y + 16,
     alwaysOnTop: true,
     resizable: false, minimizable: false, maximizable: false, fullscreenable: false,
@@ -179,8 +180,13 @@ ipcMain.on('whip-crack', () => {
   }
 });
 ipcMain.on('hide-overlay', () => { if (overlay) overlay.hide(); glowOn = false; pushState(); });
+ipcMain.on('sparkles-set', (_e, on) => {
+  sparklesOn = !!on;
+  if (overlay && overlayReady) overlay.webContents.send('sparkles', sparklesOn);
+  pushState();
+});
 ipcMain.on('control-set', (_e, on) => setGlow(!!on));
-ipcMain.handle('control-get', () => ({ enabled: glowOn, band: bandOn }));
+ipcMain.handle('control-get', () => ({ enabled: glowOn, band: bandOn, sparkles: sparklesOn }));
 
 // ── Macro: immediate Ctrl+C, type "Go FASER", Enter ───────────────────────
 function sendMacro() {

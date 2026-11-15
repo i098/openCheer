@@ -11,9 +11,9 @@
 <canvas id="c"></canvas>
 <script>
 const P = {
-  wandLength:    0.72,  // hand to tip, as a share of the screen height
-  wandWidth:     0.115, // grip width at the hand, as a share of the screen height
-  wandTaper:     0.45,  // tip width / grip width at rest: the tip is farther from the viewer
+  wandLength:    0.36,  // hand to tip, as a share of the screen height
+  wandWidth:     0.075, // stick width at the hand, as a share of the screen height
+  wandTaper:     0.8,   // tip width / grip width at rest: the tip is farther from the viewer
   wandInset:     0.17,  // hand x from the screen edge, as a share of the screen width
   wandTilt:      0.13,  // inward tilt at rest (radians)
   waveAmp:       0.2,   // idle wave (radians)
@@ -44,7 +44,7 @@ const P = {
   firstCrackGraceMs: 350,
   fallMs:        600,
   frenzyMs:      4000,
-  auraScale:     8,     // wand aura radius, in tube half-widths (rest)
+  auraScale:     3,     // wand aura radius, in tube half-widths (rest)
   auraAlpha:     0.45,  // aura strength at rest
   motes:         10,    // drifting light motes per wand
   moteSpeed:     0.00007,// mote rise speed (share of the tube per ms)
@@ -81,7 +81,7 @@ let dropping = false, dropStart = 0;
 let lastCheerTyped = -Infinity;
 let lastCrackTime = 0;
 let spawnTime = 0;
-let lean = 0;
+let lean = 0, sparkles = true;
 let bandAt = 0, bandG = null, bandAngle = 0, bandRoll = 0, bandShake = false, shaking = false, quietMs = 0, pump = 0, pitch = 0;
 let swings = [], swingDir0 = 0, swingDir = 1, swingSpeed = 0, trailE = 0, swingCount = 0, mouseArmed = true, sparks = [], sparkDebt = 0;
 const AXIS = { ax: 0, ay: 1, az: 2 };
@@ -282,7 +282,7 @@ function drawWand(side, a, alpha, fall) {
   const L = P.wandLength * H * Math.cos(pitch), w0 = P.wandWidth * H;
   let w1 = w0 * P.wandTaper * Math.exp(0.9 * sp); // perspective cue: the tip grows toward the viewer and shrinks away
   if (Math.abs(w0 - w1) < 1) w1 = w0 - 1; // the edges must meet somewhere, see across()
-  const G = 0.27, T = 0.86; // grip share of the length, tube share of the width
+  const G = 0.06, T = 0.9; // end cap share of the length, tube share of the width
   const h = `hsl(${((side ? 190 : 320) + hueOff) % 360}`, white = a => `hsla(0,0%,100%,${a})`;
   const hw = u => (w0 + (w1 - w0) * u) / 2;
   // Rings round the wand show as curves: seen from above near the hand, from below near the tip.
@@ -342,45 +342,25 @@ function drawWand(side, a, alpha, fall) {
     }
     ctx.globalCompositeOperation = 'source-over';
   }
-  // Translucent tube with shaded rims.
-  fill(across(T, [[0, `${h},100%,30%,0.95)`], [0.1, `${h},100%,52%,0.8)`], [0.5, `${h},100%,66%,0.5)`],
-    [0.9, `${h},100%,50%,0.8)`], [1, `${h},100%,26%,0.95)`]]), G - 0.03, 1, T, true);
-  // Inner glowing core: a soft halo, then the hot rod.
-  fill(across(T * 0.62, [[0, `${h},100%,75%,0)`], [0.5, `${h},100%,88%,0.9)`], [1, `${h},100%,75%,0)`]]), G - 0.03, 0.985, T * 0.62, true);
-  fill(across(T * 0.26, [[0, `${h},100%,78%)`], [0.5, `${h},100%,98%)`], [1, `${h},100%,78%)`]]), G - 0.03, 0.975, T * 0.26, true);
-  // Specular strip on the left of the tube, faded at both ends.
+  // Translucent plastic tube, one colour along its length, slightly darker at the rims.
+  fill(across(T, [[0, `${h},90%,40%,0.95)`], [0.12, `${h},90%,55%,0.9)`], [0.5, `${h},90%,64%,0.85)`],
+    [0.88, `${h},90%,52%,0.9)`], [1, `${h},90%,38%,0.95)`]]), G - 0.02, 1, T, true);
+  // Soft inner glow: a wide, faint halo of the same colour.
+  fill(across(T * 0.7, [[0, `${h},100%,70%,0)`], [0.5, `${h},100%,74%,0.5)`], [1, `${h},100%,70%,0)`]]), G - 0.02, 0.97, T * 0.7, true);
+  // Faint plastic sheen on the left of the tube.
   const sg = ctx.createLinearGradient(0, -G * L, 0, -L);
-  sg.addColorStop(0.03, white(0)); sg.addColorStop(0.15, white(0.8)); sg.addColorStop(0.7, white(0.55)); sg.addColorStop(0.95, white(0));
+  sg.addColorStop(0.05, white(0)); sg.addColorStop(0.2, white(0.3)); sg.addColorStop(0.8, white(0.2)); sg.addColorStop(0.95, white(0));
   ctx.fillStyle = sg;
   ctx.beginPath();
-  for (const [u, f] of [[G, -0.62], [0.96, -0.62], [0.96, -0.46], [G, -0.46]]) ctx.lineTo(hw(u) * T * f, -u * L);
-  ctx.fill();
-  // Hot spot in the rounded tip, brighter toward the viewer.
-  const r = hw(1) * T, tg = ctx.createRadialGradient(-r * 0.25, -L - r * 0.3, 0, 0, -L, r);
-  tg.addColorStop(0, white(0.6 + 0.35 * sp));
-  tg.addColorStop(1, white(0));
-  ctx.fillStyle = tg;
-  ctx.beginPath();
-  ctx.arc(0, -L, r, 0, 7);
+  for (const [u, f] of [[G, -0.7], [0.95, -0.7], [0.95, -0.52], [G, -0.52]]) ctx.lineTo(hw(u) * T * f, -u * L);
   ctx.fill();
 
-  // Grip: dark rubber that takes a little of the tube colour, with raised ridges.
-  const rubber = l => across(1.06, [[0, `${h},25%,${l * 0.2}%)`], [0.22, `${h},22%,${l * 0.8}%)`], [0.36, `${h},20%,${l}%)`],
-    [0.7, `${h},25%,${l * 0.45}%)`], [0.93, `${h},60%,${l * 0.9}%)`], [1, `${h},30%,${l * 0.3}%)`]]);
-  fill(rubber(26), -0.12, G - 0.035, 1);
-  const ridge = rubber(44);
-  for (let u = 0.02; u < G - 0.08; u += 0.03) {
-    fill('hsla(0,0%,0%,0.6)', u - 0.007, u, 1);
-    fill(ridge, u, u + 0.013, 1.06);
-  }
-  // Chrome collar where the tube leaves the grip.
-  fill(across(1.08, [[0, `${h},20%,18%)`], [0.2, `${h},20%,80%)`], [0.33, `${h},10%,100%)`], [0.55, `${h},25%,40%)`],
-    [0.85, `${h},60%,75%)`], [1, `${h},20%,15%)`]]), G - 0.04, G, 1.08);
-  fill('hsla(0,0%,0%,0.45)', G - 0.047, G - 0.04, 1.04);
-  // Light motes drifting up along the tube.
+  // End cap: a small plastic plug in a darker shade of the tube colour.
+  fill(across(T, [[0, `${h},70%,22%)`], [0.25, `${h},60%,40%)`], [0.55, `${h},60%,32%)`], [1, `${h},70%,18%)`]]), -0.12, G, T * 1.04);
+  // Sparkle dots drifting up along the tube.
   const now = Date.now(), px = H / 1169;
   ctx.globalCompositeOperation = 'lighter';
-  for (let i = 0; i < P.motes; i++) {
+  for (let i = 0; i < (sparkles ? P.motes : 0); i++) {
     const u = (i / P.motes + now * P.moteSpeed * (0.7 + (i % 3) * 0.3)) % 1, uu = G + (1.1 - G) * u;
     const x = Math.sin(now * 0.0016 * (1 + (i % 4) * 0.3) + i * 2.1) * hw(Math.min(uu, 1)) * T * (1.6 + (i % 5) * 0.6);
     const y = -uu * L, fade = Math.sin(Math.PI * u), rr = (2 + (i % 3)) * px * 1.6;
@@ -457,6 +437,7 @@ window.bridge.onSpawnWhip(() => {
 });
 
 window.bridge.onDropWhip(startDrop);
+window.bridge.onSparkles(on => { sparkles = on; });
 
 window.bridge.onBand(f => {
   for (const m of f.samples) bandSample(m, f.dt);

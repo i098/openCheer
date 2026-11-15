@@ -4,7 +4,7 @@
 
 Sometimes claude code is going too shlow, and you must cheer him on.. with glowsticks!
 
-The overlay shows two 3D glow wands, one for each hand, in a first-person view from the bottom of the screen.
+The overlay shows two 3D glowsticks, one for each hand, in a first-person view from the bottom of the screen.
 
 ## Install + run
 
@@ -21,7 +21,7 @@ sudo apt install xdotool
 
 ## Controls
 
-- Click tray icon: open the control window. Use its switch to show or drop the glowsticks and see if the band is connected.
+- Click tray icon: open the control window. Use its switches to show or drop the glowsticks, turn the floating sparkle dots on or off (default on), and see if the band is connected.
 - Cheer him on 🎉
 - It sends an interrupt (Ctrl-C) and one of 5 encouraging messages!
 
@@ -54,9 +54,9 @@ No environment variable is read. Edit the values in the files below.
 
 | Name | Default | What it does |
 |---|---|---|
-| `wandLength` | 0.72 | Wand length from the hand to the tip (share of the screen height) |
-| `wandWidth` | 0.115 | Grip width at the hand (share of the screen height) |
-| `wandTaper` | 0.45 | Tip width divided by grip width at rest; the tip is farther from the viewer |
+| `wandLength` | 0.36 | Wand length from the hand to the tip (share of the screen height) |
+| `wandWidth` | 0.075 | Stick width at the hand (share of the screen height) |
+| `wandTaper` | 0.8 | Tip width divided by grip width at rest; the tip is farther from the viewer |
 | `wandInset` | 0.17 | Distance of each hand from its screen edge (share of the screen width) |
 | `wandTilt` | 0.13 | Inward tilt at rest (rad) |
 | `waveAmp` | 0.2 | Idle wave size (rad) |
@@ -87,9 +87,9 @@ No environment variable is read. Edit the values in the files below.
 | `firstCrackGraceMs` | 350 | No crack for this long after the sticks appear (ms) |
 | `fallMs` | 600 | Drop animation time (ms) |
 | `frenzyMs` | 4000 | Frenzy length (ms); every typed cheer starts it |
-| `auraScale` | 8 | Wand aura radius at rest, in tube half-widths |
+| `auraScale` | 3 | Wand aura radius at rest, in tube half-widths |
 | `auraAlpha` | 0.45 | Aura strength at rest |
-| `motes` | 10 | Drifting light motes per wand |
+| `motes` | 10 | Sparkle dots per wand; the control window's Sparkles switch (default on) shows or hides them. The swing burst and trail stay on |
 | `moteSpeed` | 0.00007 | Mote rise speed (share of the tube per ms) |
 | `edgeBase` | 0.25 | Screen-edge glow at rest, as a share of the frenzy level |
 | `swingDps` | 300 | Wrist gyro speed that counts as one swing stroke (deg/s); each forward or back stroke gives trail and sparks |
