@@ -36,6 +36,7 @@ const P = {
   cheerPumpPx:   40,    // a cheer pushes the sticks up along their axis by this much, then they settle
   crackSpeed:    60,    // mouse px/frame to trigger crack
   crackCooldownMs: 200,
+  cheerCooldownMs: 20000, // after a typed cheer, no further typed cheer for this long
   firstCrackGraceMs: 350,
   fallMs:        600,
   frenzyCheers:  3,     // cheers within frenzyWindowMs start frenzy
@@ -55,6 +56,7 @@ let mouseX = 0, mouseY = 0;
 let prevMouseX = 0;
 let sticks = null;
 let dropping = false, dropStart = 0;
+let lastCheerTyped = -Infinity;
 let lastCrackTime = 0;
 let spawnTime = 0;
 let lean = 0;
@@ -205,7 +207,10 @@ function update() {
     } else {
       playChime();
     }
-    window.bridge.whipCrack();
+    if (now - lastCheerTyped >= P.cheerCooldownMs) {
+      lastCheerTyped = now;
+      window.bridge.whipCrack();
+    }
   }
 
   if (dropping && now - dropStart > P.fallMs) {
