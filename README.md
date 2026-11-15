@@ -81,7 +81,7 @@ No environment variable is read. Edit the values in the files below.
 | `cheerPumpPx` | 40 | A cheer pushes the sticks up along their axis by this much (px) |
 | `crackSpeed` | 60 | Mouse speed that counts as a crack (px/frame) |
 | `crackCooldownMs` | 200 | Minimum time between cracks (ms) |
-| `cheerCooldownMs` | 3000 | After a typed cheer, no further cheer is typed for this long (ms); chime, pump and frenzy still react (ms) |
+| `cheerCooldownMs` | 3000 | After a typed cheer, no further cheer is typed for this long (ms); chime, pump and frenzy still react. A continuous shake types one cheer per this interval |
 | `firstCrackGraceMs` | 350 | No crack for this long after the sticks appear (ms) |
 | `fallMs` | 600 | Drop animation time (ms) |
 | `frenzyCheers` | 3 | Cheers in the window that start frenzy |
