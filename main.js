@@ -23,6 +23,7 @@ let glowOn = false, bandOn = false, sparklesOn = true;
 let overlayReady = false;
 let spawnQueued = false;
 
+const MAX_SPOKEN = 300; // longest spoken text typed (chars)
 const VK_CONTROL = 0x11;
 const VK_RETURN  = 0x0D;
 const VK_C       = 0x43;
@@ -172,9 +173,9 @@ function showControl(inactive) {
 }
 
 // ── IPC ─────────────────────────────────────────────────────────────────────
-ipcMain.on('whip-crack', () => {
+ipcMain.on('whip-crack', (_e, text) => {
   try {
-    sendMacro();
+    sendMacro(text);
   } catch (err) {
     console.warn('sendMacro failed:', err?.message || err);
   }
@@ -189,8 +190,8 @@ ipcMain.on('control-set', (_e, on) => setGlow(!!on));
 ipcMain.handle('control-get', () => ({ enabled: glowOn, band: bandOn, sparkles: sparklesOn }));
 
 // ── Macro: immediate Ctrl+C, type "Go FASER", Enter ───────────────────────
-function sendMacro() {
-  // Pick a random phrase from a list of similar phrases and type it out
+function sendMacro(spoken) {
+  // Type the spoken words if given, else a random phrase from a list of similar phrases
   const phrases = [
     'You got this!',
     'Great work, keep going!',
@@ -199,7 +200,7 @@ function sendMacro() {
     'You are doing amazing!',
     'Keep it up, champion!',
   ];
-  const chosen = phrases[Math.floor(Math.random() * phrases.length)];
+  const chosen = typeof spoken === 'string' && spoken.trim() ? cleanSpoken(spoken) : phrases[Math.floor(Math.random() * phrases.length)];
 
   if (process.platform === 'win32') {
     sendMacroWindows(chosen);
@@ -208,6 +209,22 @@ function sendMacro() {
   } else if (process.platform === 'linux') {
     sendMacroLinux(chosen);
   }
+}
+
+// Spoken text comes from outside: one line, no control characters, bounded length.
+function cleanSpoken(t) {
+  return t.replace(/[\x00-\x1f\x7f]+/g, ' ').trim().slice(0, MAX_SPOKEN);
+}
+
+// AppleScript strings treat only backslash and double quote specially.
+function macTypeScript(text) {
+  const escaped = text.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  return [
+    'tell application "System Events"',
+    `  keystroke "${escaped}"`,
+    '  key code 36', // Enter
+    'end tell'
+  ].join('\n');
 }
 
 function sendMacroWindows(text) {
@@ -251,18 +268,12 @@ function sendMacroMac(text) {
 }
 
 function sendMacroMacUnchecked(text) {
-  const escaped = text.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   const interruptScript = [
     'tell application "System Events"',
     '  key code 8 using {control down}', // Ctrl+C interrupt
     'end tell'
   ].join('\n');
-  const typeAndEnterScript = [
-    'tell application "System Events"',
-    `  keystroke "${escaped}"`,
-    '  key code 36', // Enter
-    'end tell'
-  ].join('\n');
+  const typeAndEnterScript = macTypeScript(text);
 
   execFile('osascript', ['-e', interruptScript], err => {
     if (err) {
@@ -313,7 +324,7 @@ app.whenReady().then(async () => {
   stopVoice = startVoice() || stopVoice;
 });
 
-// ── Voice: Pipecat + Deepgram sidecar prints CHEER on a cheer phrase ────────
+// ── Voice: Pipecat + Deepgram sidecar prints LEVEL and SAY lines ────────
 function startVoice() {
   const script = path.join(__dirname, 'voice', 'voice.py');
   let key = process.env.DEEPGRAM_API_KEY;
@@ -332,7 +343,11 @@ function startVoice() {
   child.stdout.on('data', d => {
     const lines = (buf + d).split('\n');
     buf = lines.pop();
-    for (const l of lines) if (l.trim() === 'CHEER' && overlay && overlayReady) overlay.webContents.send('voice-cheer');
+    for (const l of lines) {
+      if (!overlay || !overlayReady) continue;
+      if (l.startsWith('LEVEL ')) overlay.webContents.send('voice-level', Number(l.slice(6)) || 0);
+      else if (l.startsWith('SAY ') && l.slice(4).trim()) overlay.webContents.send('voice-cheer', l.slice(4));
+    }
   });
   return () => child.kill();
 }

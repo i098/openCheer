@@ -1,14 +1,17 @@
-"""openCheer voice sidecar: microphone -> Deepgram STT (Pipecat) -> prints CHEER on a cheer phrase.
+"""openCheer voice sidecar: microphone -> Deepgram STT (Pipecat).
+
+Stdout lines: "LEVEL <0..1>" (microphone loudness, ~15 per second) and "SAY <text>" (each final transcript).
 
 Run alone:  DEEPGRAM_API_KEY=... python voice/voice.py [--wav file.wav]
 --wav feeds a 16 kHz mono 16-bit wav through the same pipeline instead of the microphone.
 """
 import asyncio
 import os
-import re
 import sys
 import time
 import wave
+
+import numpy as np
 
 from pipecat.frames.frames import InputAudioRawFrame, StartFrame, TranscriptionFrame
 from pipecat.pipeline.pipeline import Pipeline
@@ -17,23 +20,36 @@ from pipecat.pipeline.task import PipelineTask
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.services.deepgram.stt import DeepgramSTTService
 
-PHRASES = ["lets go", "you got this", "come on claude", "keep going", "faster claude"]
-COOLDOWN_S = 3  # same as cheerCooldownMs in overlay.html
-
-norm = lambda t: re.sub(r"[^a-z ]", "", t.lower().replace("'", ""))
+LEVEL_GAIN = 8  # level = RMS (0..1 of full scale) * this, capped at 1: normal speech ~0.3, a shout 1
+LEVEL_HZ = 15  # LEVEL lines per second
 
 
-class CheerMatcher(FrameProcessor):
-    last = -COOLDOWN_S
+class LevelMeter(FrameProcessor):
+    """Prints the loudest frame RMS of each 1/LEVEL_HZ interval as LEVEL <0..1>."""
+
+    peak, last = 0.0, 0.0
 
     async def process_frame(self, frame, direction):
         await super().process_frame(frame, direction)
+        if isinstance(frame, InputAudioRawFrame):
+            x = np.frombuffer(frame.audio, dtype=np.int16).astype(np.float64) / 32768
+            if x.size:
+                self.peak = max(self.peak, float(np.sqrt(np.mean(x * x))))
+            now = time.monotonic()
+            if now - self.last >= 1 / LEVEL_HZ:
+                self.last = now
+                print(f"LEVEL {min(1.0, self.peak * LEVEL_GAIN):.3f}", flush=True)
+                self.peak = 0.0
+        await self.push_frame(frame, direction)
+
+
+class Sayer(FrameProcessor):
+    async def process_frame(self, frame, direction):
+        await super().process_frame(frame, direction)
         if isinstance(frame, TranscriptionFrame):
-            text = norm(frame.text)
-            print(f"heard: {text}", file=sys.stderr, flush=True)
-            if any(p in text for p in PHRASES) and time.monotonic() - self.last >= COOLDOWN_S:
-                self.last = time.monotonic()
-                print("CHEER", flush=True)
+            text = " ".join(frame.text.split())  # one line
+            if text:
+                print(f"SAY {text}", flush=True)
         await self.push_frame(frame, direction)
 
 
@@ -74,7 +90,7 @@ async def main():
         transport = LocalAudioTransport(LocalAudioTransportParams(audio_in_enabled=True))
         source = transport.input()
     stt = DeepgramSTTService(api_key=key, sample_rate=16000)
-    task = PipelineTask(Pipeline([source, stt, CheerMatcher()]))
+    task = PipelineTask(Pipeline([source, LevelMeter(), stt, Sayer()]))
     if wav:
         source.task = task
     await PipelineRunner(handle_sigint=True).run(task)

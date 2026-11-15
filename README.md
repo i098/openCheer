@@ -23,17 +23,15 @@ sudo apt install xdotool
 
 - Click tray icon: open the control window. Use its switches to show or drop the glowsticks, turn the floating sparkle dots on or off (default on), and see if the band is connected.
 - Cheer him on 🎉
-- It sends an interrupt (Ctrl-C) and one of 5 encouraging messages!
+- It sends an interrupt (Ctrl-C) and one of 6 encouraging messages, or the words you said (voice)!
 
 ## How we use Deepgram
 
-openCheer sends the microphone through a Pipecat pipeline in `voice/voice.py` to Deepgram streaming speech-to-text. When a transcript contains a cheer phrase, the sidecar prints `CHEER`, and openCheer runs the same typed cheer, frenzy and `cheerCooldownMs` (3 s) cooldown as a band shake.
+openCheer sends the microphone through a Pipecat pipeline in `voice/voice.py` to Deepgram streaming speech-to-text. The sidecar prints `SAY <text>` for each final transcript, and openCheer types those words with the same typed cheer, frenzy and `cheerCooldownMs` (3 s) cooldown as a band shake. It also prints `LEVEL <0..1>` (microphone loudness, about 15 times a second); the louder you are, the more each glowstick fills with light.
 
 ## Voice
 
-Say a cheer phrase and openCheer cheers like a shake does (same typed cheer, frenzy and `cheerCooldownMs`). A Pipecat pipeline sends the microphone to Deepgram speech-to-text.
-
-Phrases: "lets go", "you got this", "come on claude", "keep going", "faster claude" (`PHRASES` in `voice/voice.py`).
+Say anything and openCheer types what Deepgram heard, then Return, like a shake does (same Ctrl-C, frenzy and `cheerCooldownMs`; a transcript inside the cooldown is dropped). Voice types only while the glowsticks are shown. Band shakes still type a random phrase. The louder you speak, the more each glowstick fills with light from the bottom: dim and empty when silent, full and bright at a shout. Without a voice sidecar the sticks look as before. A Pipecat pipeline sends the microphone to Deepgram speech-to-text.
 
 Setup (Pipecat needs Python 3.10 to 3.13; on macOS run `brew install portaudio` first):
 
@@ -42,7 +40,7 @@ uv venv -p 3.12 voice/.venv && uv pip install -p voice/.venv -r voice/requiremen
 echo 'DEEPGRAM_API_KEY=your-key' > .env   # in the app folder, or export it
 ```
 
-`opencheer` starts the sidecar when `DEEPGRAM_API_KEY` is set and `voice/voice.py` exists; else it logs one line and runs as before. Run the sidecar alone: `voice/.venv/bin/python voice/voice.py` (add `--wav file.wav` to use a 16 kHz mono wav in place of the microphone). It prints `CHEER` on a match. Spoken replies (Deepgram text-to-speech) are not included.
+`opencheer` starts the sidecar when `DEEPGRAM_API_KEY` is set and `voice/voice.py` exists; else it logs one line and runs as before. Run the sidecar alone: `voice/.venv/bin/python voice/voice.py` (add `--wav file.wav` to use a 16 kHz mono wav in place of the microphone). It prints `LEVEL` and `SAY` lines. Spoken replies (Deepgram text-to-speech) are not included.
 
 ## How it works
 
@@ -61,7 +59,7 @@ flowchart TD
   guard -->|yes| skip[Send nothing]
   guard -->|no| type[Ctrl-C, phrase, Return]
   mic[Microphone] -->|Pipecat| dg[Deepgram speech-to-text]
-  dg -->|cheer phrase| shake
+  dg -->|transcript| shake
   tray[Tray click] --> win[Control window]
   win -->|switch| sticks
   band -->|connected state| win
@@ -105,6 +103,11 @@ flowchart TD
 | `crackSpeed` | 60 | Mouse speed that counts as a crack (px/frame) |
 | `crackCooldownMs` | 200 | Minimum time between cracks (ms) |
 | `cheerCooldownMs` | 3000 | After a typed cheer, no further cheer is typed for this long (ms); only the chime and the pump react (swing trail and sparks always do). A continuous shake types one cheer per this interval |
+| `levelRise` | 0.5 | Voice fill: per frame, share of the gap to a louder level that is closed (fast rise) |
+| `levelFall` | 0.04 | Voice fill: same for a quieter level (slow drain) |
+| `levelDim` | 0.3 | Opacity of the empty part of the tube, as a share of the lit tube |
+| `levelAuraMin` | 0.25 | Aura strength at level 0, as a share of full |
+| `levelLiveMs` | 3000 | The fill is active while the last `LEVEL` line is younger than this (ms) |
 | `firstCrackGraceMs` | 350 | No crack for this long after the sticks appear (ms) |
 | `fallMs` | 600 | Drop animation time (ms) |
 | `frenzyMs` | 4000 | Frenzy length (ms); every typed cheer starts it |
@@ -139,8 +142,10 @@ Sound: the chime, swoosh and fanfare notes are fixed in `overlay.html` (function
 
 | Name | Default | What it does |
 |---|---|---|
-| `phrases` (in `sendMacro`) | 6 cheers, e.g. "You got this!" | Texts typed on a cheer; one is chosen at random |
-| `PHRASES`, `COOLDOWN_S` (`voice/voice.py`) | 5 phrases, 3 | Phrases that count as a cheer; seconds between two `CHEER` lines |
+| `phrases` (in `sendMacro`) | 6 cheers, e.g. "You got this!" | Texts typed on a band or mouse cheer; one is chosen at random |
+| `LEVEL_GAIN` (`voice/voice.py`) | 8 | Microphone RMS (share of full scale) times this is the level; normal speech about 0.3, a shout 1 |
+| `LEVEL_HZ` (`voice/voice.py`) | 15 | `LEVEL` lines per second |
+| `MAX_SPOKEN` | 300 | Longest spoken text typed (chars) |
 | `delayMs` (`refocusPreviousApp`) | 80 | Wait before focus returns to the previous app (ms) |
 | Macro delay (`sendMacroMacUnchecked`) | 300 | macOS: wait between Ctrl-C and the typed phrase (ms) |
 | Skipped app (`ifNotMessages`) | `Messages` | macOS: no cheer is sent when this app is in front |
