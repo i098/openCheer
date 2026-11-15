@@ -1,0 +1,37 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>openCheer</title>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  body { font: 14px -apple-system, "Segoe UI", sans-serif; background: hsl(230, 15%, 14%); color: hsl(0, 0%, 94%);
+         display: flex; flex-direction: column; justify-content: center; gap: 20px; height: 100vh; padding: 0 24px; user-select: none; }
+  label { display: flex; align-items: center; justify-content: space-between; font-size: 16px; font-weight: 600; cursor: pointer; }
+  input { position: absolute; opacity: 0; }
+  .sw { width: 52px; height: 30px; border-radius: 15px; background: hsl(230, 10%, 32%); position: relative; transition: background .15s; }
+  .sw::after { content: ""; position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%; background: hsl(0, 0%, 100%); transition: transform .15s; }
+  input:checked + .sw { background: hsl(140, 60%, 40%); }
+  input:checked + .sw::after { transform: translateX(22px); }
+  input:focus-visible + .sw { outline: 2px solid hsl(210, 100%, 70%); outline-offset: 2px; }
+  #band { display: flex; align-items: center; gap: 10px; }
+  #band::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: hsl(0, 70%, 55%); }
+  #band.on::before { background: hsl(140, 60%, 50%); }
+</style>
+</head>
+<body>
+<label>Glowsticks <input type="checkbox" id="glow"><span class="sw"></span></label>
+<div id="band">Band: not connected</div>
+<script>
+  const glow = document.getElementById('glow'), band = document.getElementById('band');
+  const show = s => {
+    glow.checked = s.enabled;
+    band.classList.toggle('on', s.band);
+    band.textContent = s.band ? 'Band: connected' : 'Band: not connected';
+  };
+  glow.addEventListener('change', () => window.bridge.setGlow(glow.checked));
+  window.bridge.onControlState(show);
+  window.bridge.getControlState().then(show);
+</script>
+</body>
+</html>

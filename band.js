@@ -3,7 +3,7 @@ const fs = require('fs');
 const { execFile } = require('child_process');
 
 const OP_STREAM_START = 0x10, OP_STREAM_STOP = 0x11, MOTION = 0x10, MASK_MOTION = 1;
-const SILENT_MS = 3000;
+const SILENT_MS = 3000, RETRY_MS = 3000;
 
 function cobsEncode(b) {
   const out = [0];
@@ -66,58 +66,101 @@ function findPort(cb) {
   });
 }
 
-// Calls onMotion(m) for each MOTION frame. Returns stop(); does nothing off macOS or without a band.
-function startBand(onMotion, log = console.log) {
-  let fd = null, stopped = false, last = 0, warned = false;
-  const stop = () => {
-    stopped = true;
-    if (fd === null) return;
-    try { fs.writeSync(fd, streamCmd(OP_STREAM_STOP, 2, MASK_MOTION)); } catch {}
-    try { fs.closeSync(fd); } catch {}
-    fd = null;
-  };
-  if (process.platform !== 'darwin') return stop;
+const REAL_IO = {
+  tickMs: 1000,
+  findPort,
+  exists: fs.existsSync,
+  open: p => fs.openSync(p, fs.constants.O_RDWR | fs.constants.O_NOCTTY),
+  stty: (p, cb) => execFile('stty', ['-f', p, 'raw', '-echo'], cb),
+  write: fs.writeSync,
+  read: fs.read,
+  close: fs.closeSync,
+};
 
-  findPort(port => {
-    if (stopped) return;
-    if (!port) return log('band: none found, using mouse');
-    try { fd = fs.openSync(port, fs.constants.O_RDWR | fs.constants.O_NOCTTY); }
-    catch (e) { return log(`band: cannot open ${port}: ${e.message}`); }
-    execFile('stty', ['-f', port, 'raw', '-echo'], err => {
+// Finds, opens and streams from the band by itself, and recovers when it vanishes or goes silent.
+// Calls onMotion(m) per MOTION frame and onState(true|false) when "a MOTION frame in the last 3 s" changes.
+// Returns stop(); does nothing off macOS (io is for tests).
+function startBand(onMotion, log = console.log, onState = () => {}, io = null) {
+  const T = io || REAL_IO;
+  let fd = null, port = null, stopped = false, busy = false, connected = false;
+  let last = 0, sentAt = 0, seq = 0, triedAt = 0;
+  const send = (op, mask) => T.write(fd, streamCmd(op, seq = (seq + 1) & 0xff, mask));
+  const drop = why => {
+    if (fd !== null) {
+      try { send(OP_STREAM_STOP, 0xffff); } catch {}
+      try { T.close(fd); } catch {}
+      fd = null;
+    }
+    if (why) log(`band: ${why}`);
+  };
+  const stop = () => { stopped = true; clearInterval(timer); drop(); };
+
+  const pump = myFd => {
+    let pending = Buffer.alloc(0);
+    const buf = Buffer.alloc(512);
+    const next = () => {
+      T.read(myFd, buf, 0, buf.length, null, (e, n) => {
+        if (stopped || fd !== myFd) return;
+        if (e || n === 0) return drop(`port failed: ${e ? e.message : 'closed'}`);
+        pending = Buffer.concat([pending, buf.subarray(0, n)]);
+        let z;
+        while ((z = pending.indexOf(0)) >= 0) {
+          const frame = z ? cobsDecode(pending.subarray(0, z)) : null;
+          pending = pending.subarray(z + 1);
+          const m = frame && parseMotion(frame);
+          if (m) { last = Date.now(); onMotion(m); }
+        }
+        if (pending.length > 1024) pending = Buffer.alloc(0);
+        next();
+      });
+    };
+    next();
+  };
+
+  const connect = () => {
+    busy = true;
+    T.findPort(found => {
       if (stopped) return;
-      if (err) { stop(); return log(`band: stty failed: ${err.message}`); }
-      fs.writeSync(fd, Buffer.concat([Buffer.from([0]), streamCmd(OP_STREAM_START, 1, MASK_MOTION)]));
-      last = Date.now();
-      log(`band: streaming from ${port}`);
-      const watch = setInterval(() => {
-        if (stopped) return clearInterval(watch);
-        if (!warned && Date.now() - last > SILENT_MS) { warned = true; log('band: silent, using mouse'); }
-      }, 1000);
-      watch.unref();
-      let pending = Buffer.alloc(0);
-      const buf = Buffer.alloc(512);
-      const pump = () => {
-        if (stopped) return;
-        fs.read(fd, buf, 0, buf.length, null, (e, n) => {
-          if (stopped) return;
-          if (e || n === 0) { stop(); return log(`band: port failed: ${e ? e.message : 'closed'}`); }
-          last = Date.now();
-          warned = false;
-          pending = Buffer.concat([pending, buf.subarray(0, n)]);
-          let z;
-          while ((z = pending.indexOf(0)) >= 0) {
-            const frame = z ? cobsDecode(pending.subarray(0, z)) : null;
-            pending = pending.subarray(z + 1);
-            const m = frame && parseMotion(frame);
-            if (m) onMotion(m);
-          }
-          if (pending.length > 1024) pending = Buffer.alloc(0);
-          pump();
-        });
-      };
-      pump();
+      if (!found) { busy = false; return; }
+      let myFd;
+      try { myFd = T.open(found); }
+      catch (e) { busy = false; return log(`band: cannot open ${found}: ${e.message}`); }
+      T.stty(found, err => {
+        busy = false;
+        if (stopped) { try { T.close(myFd); } catch {} return; }
+        if (err) { try { T.close(myFd); } catch {} return log(`band: stty failed: ${err.message}`); }
+        fd = myFd; port = found;
+        try {
+          T.write(fd, Buffer.from([0])); // resync, then clear any stream a previous program left running
+          send(OP_STREAM_STOP, 0xffff);
+          send(OP_STREAM_START, MASK_MOTION);
+        } catch (e) { return drop(`write failed: ${e.message}`); }
+        sentAt = Date.now();
+        log(`band: streaming from ${port}`);
+        pump(fd);
+      });
     });
-  });
+  };
+
+  const tick = () => {
+    if (stopped) return;
+    const now = Date.now();
+    if (busy) {
+      // wait for the open in progress
+    } else if (fd === null) {
+      if ((process.platform === 'darwin' || io) && now - triedAt >= RETRY_MS) { triedAt = now; connect(); }
+    } else if (!T.exists(port)) {
+      drop('port gone');
+    } else if (now - Math.max(last, sentAt) > SILENT_MS) {
+      try { send(OP_STREAM_START, MASK_MOTION); sentAt = now; log('band: silent, restarting stream'); }
+      catch (e) { drop(`write failed: ${e.message}`); }
+    }
+    const live = last > 0 && now - last < SILENT_MS;
+    if (live !== connected) { connected = live; log(`band: ${connected ? 'connected' : 'not connected'}`); onState(connected); }
+  };
+  const timer = setInterval(tick, T.tickMs);
+  timer.unref();
+  tick();
   return stop;
 }
 
