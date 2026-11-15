@@ -264,7 +264,16 @@ function ifNotMessages(run) {
   });
 }
 
+const AX_MSG = 'Typing needs Accessibility: System Settings > Privacy & Security > Accessibility > Electron';
+let axWarnedAt = 0;
+function axTrusted() {
+  if (systemPreferences.isTrustedAccessibilityClient(false)) return true;
+  if (Date.now() - axWarnedAt > 60000) { axWarnedAt = Date.now(); console.log(AX_MSG); }
+  return false;
+}
+
 function sendMacroMac(text) {
+  if (!axTrusted()) return;
   ifNotMessages(() => sendMacroMacUnchecked(text));
 }
 
@@ -322,7 +331,10 @@ app.whenReady().then(async () => {
   stopBand = startBand(m => {
     if (overlay && overlayReady) overlay.webContents.send('band-motion', m);
   }, console.log, on => { bandOn = on; pushState(); });
-  if (process.platform === 'darwin') await askMic();
+  if (process.platform === 'darwin') {
+    await askMic();
+    if (!systemPreferences.isTrustedAccessibilityClient(false)) { systemPreferences.isTrustedAccessibilityClient(true); axWarnedAt = Date.now(); console.log(AX_MSG); }
+  }
   stopVoice = startVoice() || stopVoice;
 });
 

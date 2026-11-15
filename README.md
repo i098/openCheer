@@ -31,7 +31,7 @@ openCheer sends the microphone through a Pipecat pipeline in `voice/voice.py` to
 
 ## Voice
 
-On macOS the first start shows the microphone prompt for Electron. Start Electron as its own app, not from a terminal: `open -n /path/to/openCheer/node_modules/electron/dist/Electron.app --args /path/to/openCheer`. A terminal or ssh parent can become the app that macOS asks about. If access is denied, one log line says so.
+On macOS the first start shows the microphone prompt for Electron. Start Electron as its own app, not from a terminal: `open -n /path/to/openCheer/node_modules/electron/dist/Electron.app --args /path/to/openCheer`. A terminal or ssh parent can become the app that macOS asks about. If access is denied, one log line says so. Typing the cheer needs the Accessibility switch for Electron (System Settings > Privacy & Security > Accessibility).
 
 Say anything and openCheer types what Deepgram heard, then Return, like a shake does (same Ctrl-C, frenzy and `cheerCooldownMs`; a transcript inside the cooldown is dropped). Voice types only while the glowsticks are shown. Band shakes still type a random phrase. The louder you speak, the more each glowstick fills with light from the bottom: dim and empty when silent, full and bright at a shout. Without a voice sidecar the sticks look as before. A Pipecat pipeline sends the microphone to Deepgram speech-to-text.
 
