@@ -63,6 +63,9 @@ No environment variable is read. Edit the values in the files below.
 | `bandRollSign` | 1 | Set -1 to mirror the lean |
 | `bandGyroSign` | 1 | Set -1 if the sticks first move the wrong way on a turn; 0 uses the accelerometer only |
 | `bandRollClamp` | 1.2 | Maximum band lean (rad) |
+| `bandPitchSign` | 1 | `-1` if the sticks swing back when the hand swings forward |
+| `bandPitchReturnMs` | 250 | Forward/back swing decays to upright with this time constant (ms) |
+| `bandPitchClamp` | 1.2 | Maximum forward/back swing (rad) |
 | `bandGravityTau` | 0.04 | How fast the accelerometer corrects the gyro (s) |
 | `bandAccelTrust` | 0.15 | The accelerometer corrects only while it reads within this of 1 g (g) |
 | `bandHoldDps` | 200 | Wrist gyro speed above which the lean holds still, so a shake does not swing the sticks (deg/s) |
@@ -75,6 +78,7 @@ No environment variable is read. Edit the values in the files below.
 | `cheerPumpPx` | 40 | A cheer pushes the sticks up along their axis by this much (px) |
 | `crackSpeed` | 60 | Mouse speed that counts as a crack (px/frame) |
 | `crackCooldownMs` | 200 | Minimum time between cracks (ms) |
+| `cheerCooldownMs` | 20000 | After a typed cheer, no further cheer is typed for this long (ms); chime, pump and frenzy still react (ms) |
 | `firstCrackGraceMs` | 350 | No crack for this long after the sticks appear (ms) |
 | `fallMs` | 600 | Drop animation time (ms) |
 | `frenzyCheers` | 3 | Cheers in the window that start frenzy |

@@ -24,6 +24,9 @@ const P = {
   bandRollSign:  1,     // -1 mirrors the lean
   bandGyroSign:  1,     // -1 if the sticks first move the wrong way on a turn; 0 uses the accelerometer only
   bandRollClamp: 1.2,   // radians
+  bandPitchSign: 1,     // -1 if the sticks swing back when the hand swings forward
+  bandPitchReturnMs: 250, // forward/back swing decays to upright with this time constant
+  bandPitchClamp: 1.2,  // radians
   bandGravityTau: 0.04, // seconds: how fast the accelerometer corrects the gyro
   bandAccelTrust: 0.15, // the accelerometer corrects only while it reads within this of 1 g
   bandHoldDps:   200,   // wrist gyro magnitude (deg/s) above which the lean holds still, so a shake does not swing the sticks
@@ -36,6 +39,7 @@ const P = {
   cheerPumpPx:   40,    // a cheer pushes the sticks up along their axis by this much, then they settle
   crackSpeed:    60,    // mouse px/frame to trigger crack
   crackCooldownMs: 200,
+  cheerCooldownMs: 20000, // after a typed cheer, no further typed cheer for this long
   firstCrackGraceMs: 350,
   fallMs:        600,
   frenzyCheers:  3,     // cheers within frenzyWindowMs start frenzy
@@ -55,10 +59,11 @@ let mouseX = 0, mouseY = 0;
 let prevMouseX = 0;
 let sticks = null;
 let dropping = false, dropStart = 0;
+let lastCheerTyped = -Infinity;
 let lastCrackTime = 0;
 let spawnTime = 0;
 let lean = 0;
-let bandAt = 0, bandG = null, bandAngle = 0, bandRoll = 0, bandShake = false, shaking = false, quietMs = 0, pump = 0;
+let bandAt = 0, bandG = null, bandAngle = 0, bandRoll = 0, bandShake = false, shaking = false, quietMs = 0, pump = 0, pitch = 0;
 const AXIS = { ax: 0, ay: 1, az: 2 };
 
 // One band sample, dt seconds after the last one.
@@ -67,6 +72,9 @@ function bandSample(m, dt) {
   if (dps > P.bandShakeDps && !shaking) bandShake = shaking = true;
   quietMs = dps < P.bandShakeEndDps ? quietMs + dt * 1000 : 0;
   if (quietMs >= P.bandShakeQuietMs) shaking = false;
+  // Forward/back swing: gyro about the sideways axis, kept during shakes; update() decays it so it cannot drift.
+  const gs = [m.gx, m.gy, m.gz][AXIS[P.bandLeanAxis]];
+  pitch = Math.max(-P.bandPitchClamp, Math.min(P.bandPitchClamp, pitch + P.bandPitchSign * gs * dt * Math.PI / 180));
   // Fast motion must not reach the lean: hold the last slow orientation until the wrist is slow again.
   if (shaking || dps > P.bandHoldDps) return;
 
@@ -190,12 +198,13 @@ function update() {
   const clamped = Math.max(-P.bandRollClamp, Math.min(P.bandRollClamp, bandAngle));
   bandRoll += (clamped - bandRoll) * (1 - Math.exp(-dt / P.bandSmoothMs));
   pump *= Math.exp(-dt / 120);
+  pitch *= Math.exp(-dt / P.bandPitchReturnMs);
   const shake = live && bandShake;
   bandShake = false;
   if (!dropping && (live ? shake : Math.hypot(mvx) > P.crackSpeed) &&
       now - spawnTime >= P.firstCrackGraceMs && now - lastCrackTime > P.crackCooldownMs) {
     lastCrackTime = now;
-    pump = 1;
+    if (!live) pump = 1; // with the band, the forward/back swing replaces the pump
     cheers = cheers.filter(c => now - c < P.frenzyWindowMs);
     cheers.push(now);
     if (cheers.length >= P.frenzyCheers && !frenzyUntil) {
@@ -205,7 +214,10 @@ function update() {
     } else {
       playChime();
     }
-    window.bridge.whipCrack();
+    if (now - lastCheerTyped >= P.cheerCooldownMs) {
+      lastCheerTyped = now;
+      window.bridge.whipCrack();
+    }
   }
 
   if (dropping && now - dropStart > P.fallMs) {
@@ -223,6 +235,8 @@ function drawStick(s, a, alpha, fall) {
   ctx.translate(s.x, s.y + fall);
   ctx.rotate(a);
   ctx.translate(0, -P.cheerPumpPx * pump);
+  const sp = Math.sin(pitch); // > 0: tip toward the viewer
+  ctx.scale(1, Math.cos(pitch));
   const g = ctx.createLinearGradient(-w / 2, 0, w / 2, 0);
   g.addColorStop(0, `${h},100%,25%)`);
   g.addColorStop(0.3, `${h},100%,60%)`);
@@ -244,6 +258,12 @@ function drawStick(s, a, alpha, fall) {
   ctx.beginPath();
   ctx.roundRect(-w * 0.28, -L + w * 0.6, w * 0.1, L * 0.7, w * 0.05);
   ctx.fill();
+  if (Math.abs(sp) > 0.02) { // perspective cue: tip bigger and brighter toward the viewer, smaller and dimmer away
+    ctx.fillStyle = `${h},100%,${70 + 25 * sp}%)`;
+    ctx.beginPath();
+    ctx.ellipse(0, -L, w * 0.5 * (1 + 0.6 * sp), w * 0.5 * (1 + 0.6 * sp), 0, 0, 7);
+    ctx.fill();
+  }
   ctx.restore();
 }
 
