@@ -1,7 +1,6 @@
 const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const os = require('os');
 const { execFile } = require('child_process');
 const { startBand } = require('./band');
 
@@ -78,15 +77,7 @@ function createTrayIconFallback() {
   return nativeImage.createEmpty();
 }
 
-async function tryIcnsTrayImage(icnsPath) {
-  const size = { width: 64, height: 64 };
-  const thumb = await nativeImage.createThumbnailFromPath(icnsPath, size);
-  if (!thumb.isEmpty()) return thumb;
-  return null;
-}
-
-// macOS: createFromPath does not decode .icns (Electron only loads PNG/JPEG there, ICO on Windows).
-// Quick Look thumbnails handle .icns; copy to temp if the file is inside ASAR (QL needs a real path).
+// macOS uses the template PNG (icon/Template.png + @2x), tinted by the system.
 async function getTrayIcon() {
   const iconDir = path.join(__dirname, 'icon');
   if (process.platform === 'win32') {
@@ -94,28 +85,6 @@ async function getTrayIcon() {
     if (fs.existsSync(file)) {
       const img = nativeImage.createFromPath(file);
       if (!img.isEmpty()) return img;
-    }
-    return createTrayIconFallback();
-  }
-  if (process.platform === 'darwin') {
-    const file = path.join(iconDir, 'AppIcon.icns');
-    if (fs.existsSync(file)) {
-      const fromPath = nativeImage.createFromPath(file);
-      if (!fromPath.isEmpty()) return fromPath;
-      try {
-        const t = await tryIcnsTrayImage(file);
-        if (t) return t;
-      } catch (e) {
-        console.warn('AppIcon.icns Quick Look thumbnail failed:', e?.message || e);
-      }
-      const tmp = path.join(os.tmpdir(), 'opencheer-tray.icns');
-      try {
-        fs.copyFileSync(file, tmp);
-        const t = await tryIcnsTrayImage(tmp);
-        if (t) return t;
-      } catch (e) {
-        console.warn('AppIcon.icns temp copy + thumbnail failed:', e?.message || e);
-      }
     }
     return createTrayIconFallback();
   }
