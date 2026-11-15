@@ -35,6 +35,7 @@
     "band.js",
     "preload.js",
     "overlay.html",
+    "control.html",
     "sounds",
     "icon",
     "bin/opencheer.js",

@@ -19,7 +19,8 @@ if (process.platform === 'win32') {
 }
 
 // ── Globals ─────────────────────────────────────────────────────────────────
-let tray, overlay;
+let tray, overlay, ctl;
+let glowOn = false, bandOn = false;
 let overlayReady = false;
 let spawnQueued = false;
 
@@ -153,23 +154,51 @@ function createOverlay() {
   overlay.on('closed', () => {
     overlay = null;
     overlayReady = false;
+    glowOn = false;
+    pushState();
     spawnQueued = false;
   });
 }
 
-function toggleOverlay() {
-  if (overlay && overlay.isVisible()) {
-    overlay.webContents.send('drop-whip');
-    return;
-  }
-  if (!overlay) createOverlay();
-  overlay.show();
-  if (overlayReady) {
-    overlay.webContents.send('spawn-whip');
-    refocusPreviousApp();
+function pushState() {
+  if (ctl && !ctl.isDestroyed()) ctl.webContents.send('control-state', { enabled: glowOn, band: bandOn });
+}
+
+function setGlow(on) {
+  if (on === glowOn) return pushState();
+  glowOn = on;
+  if (!on) {
+    if (overlay && overlay.isVisible()) overlay.webContents.send('drop-whip');
   } else {
-    spawnQueued = true;
+    if (!overlay) createOverlay();
+    overlay.show();
+    if (overlayReady) {
+      overlay.webContents.send('spawn-whip');
+      refocusPreviousApp();
+    } else {
+      spawnQueued = true;
+    }
   }
+  pushState();
+}
+
+// ── Control window ──────────────────────────────────────────────────────────
+function showControl(inactive) {
+  if (ctl && !ctl.isDestroyed()) return ctl.show();
+  const wa = screen.getPrimaryDisplay().workArea;
+  ctl = new BrowserWindow({
+    width: 280, height: 150, useContentSize: true,
+    x: wa.x + wa.width - 280 - 16, y: wa.y + 16,
+    alwaysOnTop: true,
+    resizable: false, minimizable: false, maximizable: false, fullscreenable: false,
+    show: false,
+    title: 'openCheer',
+    webPreferences: { preload: path.join(__dirname, 'preload.js') },
+  });
+  ctl.setMenuBarVisibility(false);
+  ctl.loadFile('control.html');
+  ctl.once('ready-to-show', () => (inactive ? ctl.showInactive() : ctl.show()));
+  ctl.on('closed', () => { ctl = null; });
 }
 
 // ── IPC ─────────────────────────────────────────────────────────────────────
@@ -180,7 +209,9 @@ ipcMain.on('whip-crack', () => {
     console.warn('sendMacro failed:', err?.message || err);
   }
 });
-ipcMain.on('hide-overlay', () => { if (overlay) overlay.hide(); });
+ipcMain.on('hide-overlay', () => { if (overlay) overlay.hide(); glowOn = false; pushState(); });
+ipcMain.on('control-set', (_e, on) => setGlow(!!on));
+ipcMain.handle('control-get', () => ({ enabled: glowOn, band: bandOn }));
 
 // ── Macro: immediate Ctrl+C, type "Go FASER", Enter ───────────────────────
 function sendMacro() {
@@ -230,7 +261,21 @@ function sendMacroWindows(text) {
   keybd_event(VK_RETURN, 0, KEYUP, 0);
 }
 
+// Never type into Messages: a cheer there goes to a real chat. If the front app is unknown, skip too.
+function ifNotMessages(run) {
+  const script = 'tell application "System Events" to get name of first application process whose frontmost is true';
+  execFile('osascript', ['-e', script], (err, out) => {
+    if (err) return console.warn('mac macro skipped, front app unknown:', err.message);
+    if (out.trim() === 'Messages') return;
+    run();
+  });
+}
+
 function sendMacroMac(text) {
+  ifNotMessages(() => sendMacroMacUnchecked(text));
+}
+
+function sendMacroMacUnchecked(text) {
   const escaped = text.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
   const interruptScript = [
     'tell application "System Events"',
@@ -250,13 +295,13 @@ function sendMacroMac(text) {
       return;
     }
 
-    setTimeout(() => {
+    setTimeout(() => ifNotMessages(() => {
       execFile('osascript', ['-e', typeAndEnterScript], err2 => {
         if (err2) {
           console.warn('mac macro failed (enable Accessibility for terminal/app):', err2.message);
         }
       });
-    }, 300);
+    }), 300);
   });
 }
 
@@ -279,16 +324,17 @@ function sendMacroLinux(text) {
 // ── App lifecycle ───────────────────────────────────────────────────────────
 app.whenReady().then(async () => {
   tray = new Tray(await getTrayIcon());
-  tray.setToolTip('openCheer - click for glowsticks');
+  tray.setToolTip('openCheer - click for controls');
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: 'Quit', click: () => app.quit() },
     ])
   );
-  tray.on('click', toggleOverlay);
+  tray.on('click', () => showControl(false));
+  showControl(true);
   stopBand = startBand(m => {
     if (overlay && overlayReady) overlay.webContents.send('band-motion', m);
-  });
+  }, console.log, on => { bandOn = on; pushState(); });
 });
 
 let stopBand = () => {};
