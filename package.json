@@ -37,6 +37,8 @@
     "overlay.html",
     "control.html",
     "sounds",
+    "voice/voice.py",
+    "voice/requirements.txt",
     "icon",
     "bin/opencheer.js",
     "bin/badclaude.js",

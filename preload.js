@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('bridge', {
   hideOverlay: () => ipcRenderer.send('hide-overlay'),
   onSpawnWhip: (fn) => ipcRenderer.on('spawn-whip', () => fn()),
   onBand: (fn) => ipcRenderer.on('band-motion', (_e, m) => fn(m)),
+  onVoice: (fn) => ipcRenderer.on('voice-cheer', () => fn()),
   onDropWhip: (fn) => ipcRenderer.on('drop-whip', () => fn()),
   onControlState: (fn) => ipcRenderer.on('control-state', (_e, s) => fn(s)),
   getControlState: () => ipcRenderer.invoke('control-get'),

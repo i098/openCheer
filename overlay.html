@@ -183,6 +183,16 @@ const playFanfare = () => sfx((a, t) => {
   tone(a, 523, t, 0.9, 0.18, 'square');
 });
 
+// Types one cheer unless the cooldown is running; returns whether it did.
+function typeCheer(now) {
+  if (now - lastCheerTyped < P.cheerCooldownMs) return false;
+  lastCheerTyped = now;
+  frenzyUntil = now + P.frenzyMs; // every typed cheer starts frenzy
+  playFanfare();
+  window.bridge.whipCrack();
+  return true;
+}
+
 function update() {
   if (!shown) return;
   const mvx = mouseX - prevMouseX;
@@ -210,14 +220,7 @@ function update() {
       now - spawnTime >= P.firstCrackGraceMs && now - lastCrackTime > P.crackCooldownMs) {
     lastCrackTime = now;
     if (!live) pump = 1; // with the band, the forward/back swing replaces the pump
-    if (now - lastCheerTyped >= P.cheerCooldownMs) {
-      lastCheerTyped = now;
-      frenzyUntil = now + P.frenzyMs; // every typed cheer starts frenzy
-      playFanfare();
-      window.bridge.whipCrack();
-    } else {
-      playChime();
-    }
+    if (!typeCheer(now)) playChime();
   }
 
   // Swing feedback, independent of the cheer logic above.
@@ -438,6 +441,7 @@ window.bridge.onSpawnWhip(() => {
 
 window.bridge.onDropWhip(startDrop);
 window.bridge.onSparkles(on => { sparkles = on; });
+window.bridge.onVoice(() => { if (!dropping) typeCheer(Date.now()); }); // voice cheer: same cooldown and frenzy
 
 window.bridge.onBand(f => {
   for (const m of f.samples) bandSample(m, f.dt);
