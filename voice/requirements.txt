@@ -1,1 +1,5 @@
 pipecat-ai[deepgram,local]==1.16.0
+# Security floors for transitive deps (fixes PYSEC-2026-3844..3849, PYSEC-2026-4320)
+certifi>=2026.10.18
+httpcore2>=2.10.0
+httpx2>=2.12.0
